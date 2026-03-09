@@ -66,6 +66,10 @@ function findBinaryDir() {
 	return undefined;
 }
 
+function hasLocalPrebuild() {
+	return Boolean(findBinaryDir());
+}
+
 function copyIfExists(src, destDir) {
 	if (!fs.existsSync(src)) {
 		return;
@@ -101,6 +105,15 @@ function copyUnicornRuntimeDeps(binaryDir) {
 }
 
 console.log(`[hexcore-native-install] Installing native module: ${moduleName}`);
+
+if (hasLocalPrebuild()) {
+	console.log(`[hexcore-native-install] Found local prebuild for ${moduleName}, skipping rebuild.`);
+	const binaryDir = findBinaryDir();
+	if (binaryDir && moduleName === 'hexcore-unicorn') {
+		copyUnicornRuntimeDeps(binaryDir);
+	}
+	process.exit(0);
+}
 
 const useNapiRuntime = Boolean(pkg.binary && Array.isArray(pkg.binary.napi_versions) && pkg.binary.napi_versions.length > 0);
 const prebuildArgs = useNapiRuntime ? ['--verbose', '--runtime', 'napi'] : ['--verbose'];
