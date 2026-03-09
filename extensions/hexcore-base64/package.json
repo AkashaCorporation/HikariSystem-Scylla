@@ -1,0 +1,58 @@
+{
+	"name": "hexcore-base64",
+	"displayName": "HexCore Base64 Decoder",
+	"description": "Detect and decode Base64 encoded strings in binary files",
+	"version": "1.0.0",
+	"publisher": "hikarisystem",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.60.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"keywords": [
+		"base64",
+		"decode",
+		"encoding",
+		"malware",
+		"obfuscation"
+	],
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onCommand:hexcore.base64.decode",
+		"onCommand:hexcore.base64.decodeHeadless"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "hexcore.base64.decode",
+				"title": "HexCore: Decode Base64"
+			},
+			{
+				"command": "hexcore.base64.decodeHeadless",
+				"title": "HexCore: Decode Base64 (Headless)"
+			}
+		],
+		"menus": {
+			"explorer/context": [
+				{
+					"command": "hexcore.base64.decode",
+					"group": "hexcore@5"
+				}
+			]
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.0",
+		"@types/node": "^18.0.0",
+		"@types/vscode": "^1.60.0",
+		"fast-check": "^3.15.0",
+		"mocha": "^10.2.0",
+		"typescript": "^5.0.0"
+	}
+}

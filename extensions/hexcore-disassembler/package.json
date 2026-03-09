@@ -1,0 +1,425 @@
+{
+	"name": "hexcore-disassembler",
+	"displayName": "HexCore Disassembler",
+	"description": "Professional disassembler with Capstone engine for x86/x64/ARM analysis",
+	"version": "1.3.0",
+	"publisher": "hikarisystem",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.75.0"
+	},
+	"activationEvents": [
+		"onCommand:hexcore.pipeline.runJob",
+		"onCommand:hexcore.pipeline.listCapabilities",
+		"onCommand:hexcore.pipeline.validateJob",
+		"onCommand:hexcore.pipeline.validateWorkspace",
+		"onCommand:hexcore.pipeline.createPresetJob",
+		"onCommand:hexcore.pipeline.saveJobAsProfile",
+		"onCommand:hexcore.pipeline.doctor",
+		"onCommand:hexcore.disasm.buildFormula",
+		"onCommand:hexcore.disasm.checkConstants",
+		"onCustomEditor:hexcore.disassembler.editor",
+		"onView:hexcore.disassembler.graphView",
+		"workspaceContains:.hexcore_job.json"
+	],
+	"extensionDependencies": [],
+	"categories": [
+		"Programming Languages",
+		"Debuggers",
+		"Visualization"
+	],
+	"keywords": [
+		"disassembler",
+		"assembly",
+		"capstone",
+		"x86",
+		"x64",
+		"arm",
+		"reverse engineering",
+		"malware analysis",
+		"binary analysis"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"customEditors": [
+			{
+				"viewType": "hexcore.disassembler.editor",
+				"displayName": "HexCore Disassembler",
+				"selector": [
+					{
+						"filenamePattern": "*.{exe,dll,sys,ocx,scr,cpl}"
+					},
+					{
+						"filenamePattern": "*.{elf,so,a,o}"
+					},
+					{
+						"filenamePattern": "*.{bin,raw,dmp}"
+					}
+				],
+				"priority": "default"
+			}
+		],
+		"commands": [
+			{
+				"command": "hexcore.disasm.openFile",
+				"title": "Open Binary File...",
+				"category": "HexCore Disassembler",
+				"icon": "$(file-binary)"
+			},
+			{
+				"command": "hexcore.disasm.open",
+				"title": "Open in Disassembler",
+				"category": "HexCore Disassembler",
+				"icon": "$(list-flat)"
+			},
+			{
+				"command": "hexcore.disasm.analyzeFile",
+				"title": "Disassemble Binary",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.goToAddress",
+				"title": "Go to Address",
+				"category": "HexCore Disassembler",
+				"icon": "$(arrow-right)"
+			},
+			{
+				"command": "hexcore.disasm.findXrefs",
+				"title": "Find Cross-References",
+				"category": "HexCore Disassembler",
+				"icon": "$(references)"
+			},
+			{
+				"command": "hexcore.disasm.addComment",
+				"title": "Add Comment",
+				"category": "HexCore Disassembler",
+				"icon": "$(comment)"
+			},
+			{
+				"command": "hexcore.disasm.renameFunction",
+				"title": "Rename Function",
+				"category": "HexCore Disassembler",
+				"icon": "$(symbol-method)"
+			},
+			{
+				"command": "hexcore.disasm.showCFG",
+				"title": "Show Control Flow Graph",
+				"category": "HexCore Disassembler",
+				"icon": "$(debug-step-over)"
+			},
+			{
+				"command": "hexcore.disasm.searchString",
+				"title": "Search String References",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.exportASM",
+				"title": "Export Assembly",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.patchInstruction",
+				"title": "Patch Instruction",
+				"category": "HexCore Disassembler",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "hexcore.disasm.nopInstruction",
+				"title": "NOP Instruction",
+				"category": "HexCore Disassembler",
+				"icon": "$(close)"
+			},
+			{
+				"command": "hexcore.disasm.assemble",
+				"title": "Assemble Code",
+				"category": "HexCore Disassembler",
+				"icon": "$(code)"
+			},
+			{
+				"command": "hexcore.disasm.assembleMultiple",
+				"title": "Assemble Multiple Instructions",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.savePatchedFile",
+				"title": "Save Patched File",
+				"category": "HexCore Disassembler",
+				"icon": "$(save-as)"
+			},
+			{
+				"command": "hexcore.disasm.setSyntax",
+				"title": "Set Assembly Syntax",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.showLlvmVersion",
+				"title": "Show LLVM Version",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.nativeStatus",
+				"title": "Show Native Engine Status",
+				"category": "HexCore Disassembler"
+			},
+			{
+				"command": "hexcore.disasm.analyzeAll",
+				"title": "Deep Analysis (Prolog Scan + Xrefs)",
+				"category": "HexCore Disassembler",
+				"icon": "$(search)"
+			},
+			{
+				"command": "hexcore.disasm.buildFormula",
+				"title": "Build Formula from Instructions",
+				"category": "HexCore Disassembler",
+				"icon": "$(symbol-operator)"
+			},
+			{
+				"command": "hexcore.disasm.checkConstants",
+				"title": "Check Constant Annotation Sanity",
+				"category": "HexCore Disassembler",
+				"icon": "$(check)"
+			},
+			{
+				"command": "hexcore.pipeline.runJob",
+				"title": "Run HexCore Automation Job",
+				"category": "HexCore Automation",
+				"icon": "$(play)"
+			},
+			{
+				"command": "hexcore.pipeline.listCapabilities",
+				"title": "List Pipeline Command Capabilities",
+				"category": "HexCore Automation",
+				"icon": "$(list-unordered)"
+			},
+			{
+				"command": "hexcore.pipeline.validateJob",
+				"title": "Validate HexCore Automation Job",
+				"category": "HexCore Automation",
+				"icon": "$(check)"
+			},
+			{
+				"command": "hexcore.pipeline.validateWorkspace",
+				"title": "Validate HexCore Jobs in Workspace",
+				"category": "HexCore Automation",
+				"icon": "$(check-all)"
+			},
+			{
+				"command": "hexcore.pipeline.createPresetJob",
+				"title": "Create HexCore Job from Preset",
+				"category": "HexCore Automation",
+				"icon": "$(new-file)"
+			},
+			{
+				"command": "hexcore.pipeline.saveJobAsProfile",
+				"title": "Save Current Job as Workspace Profile",
+				"category": "HexCore Automation",
+				"icon": "$(save)"
+			},
+			{
+				"command": "hexcore.pipeline.doctor",
+				"title": "Run HexCore Pipeline Doctor",
+				"category": "HexCore Automation",
+				"icon": "$(heart)"
+			},
+			{
+				"command": "hexcore.disasm.searchStringHeadless",
+				"title": "Search String References (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.disasm.exportASMHeadless",
+				"title": "Export Assembly (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.disasm.liftToIR",
+				"title": "[Experimental] Lift to LLVM IR",
+				"category": "HexCore Disassembler",
+				"icon": "$(beaker)"
+			},
+			{
+				"command": "hexcore.rellic.decompile",
+				"title": "[Experimental] Decompile to C",
+				"category": "HexCore Disassembler",
+				"icon": "$(beaker)"
+			},
+			{
+				"command": "hexcore.rellic.decompileIR",
+				"title": "[Experimental] Decompile IR to C",
+				"category": "HexCore Disassembler",
+				"icon": "$(beaker)"
+			}
+		],
+		"menus": {
+			"explorer/context": [
+				{
+					"command": "hexcore.disasm.analyzeFile",
+					"when": "resourceExtname == .exe || resourceExtname == .dll || resourceExtname == .bin || resourceExtname == .elf || resourceExtname == .so",
+					"group": "hexcore@2"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "hexcore.disasm.goToAddress",
+					"group": "navigation",
+					"when": "activeWebviewPanelId == hexcore.disassembler"
+				},
+				{
+					"command": "hexcore.disasm.findXrefs",
+					"group": "navigation",
+					"when": "activeWebviewPanelId == hexcore.disassembler"
+				},
+				{
+					"command": "hexcore.disasm.liftToIR",
+					"group": "navigation",
+					"when": "activeWebviewPanelId == hexcore.disassembler && hexcore:remillAvailable"
+				},
+				{
+					"command": "hexcore.rellic.decompile",
+					"group": "navigation",
+					"when": "activeWebviewPanelId == hexcore.disassembler && hexcore:rellicAvailable && hexcore:remillAvailable"
+				}
+			],
+			"view/title": [
+				{
+					"command": "hexcore.disasm.analyzeAll",
+					"when": "view == hexcore.disassembler.functions",
+					"group": "navigation"
+				},
+				{
+					"command": "hexcore.disasm.showCFG",
+					"when": "view == hexcore.disassembler.graphView",
+					"group": "navigation"
+				}
+			]
+		},
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "hexcore-disassembler",
+					"title": "Disassembler",
+					"icon": "$(debug-disconnect)",
+					"when": "hexcore:disassemblerActive"
+				}
+			]
+		},
+		"views": {
+			"hexcore-disassembler": [
+				{
+					"type": "webview",
+					"id": "hexcore.disassembler.graphView",
+					"name": "Graph View",
+					"icon": "$(type-hierarchy)"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.disassembler.functions",
+					"name": "Functions",
+					"icon": "$(symbol-method)"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.disassembler.sections",
+					"name": "Sections",
+					"icon": "$(split-horizontal)"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.disassembler.imports",
+					"name": "Imports",
+					"icon": "$(arrow-down)"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.disassembler.exports",
+					"name": "Exports",
+					"icon": "$(arrow-up)"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.disassembler.strings",
+					"name": "Strings",
+					"icon": "$(quote)"
+				}
+			]
+		},
+		"jsonValidation": [
+			{
+				"fileMatch": [
+					"/.hexcore_job.json",
+					"**/.hexcore_job.json"
+				],
+				"url": "./schemas/hexcore-job.schema.json"
+			}
+		],
+		"configuration": {
+			"title": "HexCore Disassembler",
+			"properties": {
+				"hexcore.disassembler.defaultArchitecture": {
+					"type": "string",
+					"default": "x64",
+					"enum": [
+						"x86",
+						"x64",
+						"arm",
+						"arm64",
+						"mips"
+					],
+					"description": "Default architecture for disassembly"
+				},
+				"hexcore.disassembler.syntaxFlavor": {
+					"type": "string",
+					"default": "intel",
+					"enum": [
+						"intel",
+						"att"
+					],
+					"description": "Assembly syntax flavor"
+				},
+				"hexcore.disassembler.showBytes": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show instruction bytes alongside disassembly"
+				},
+				"hexcore.disassembler.showComments": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show comments and annotations"
+				},
+				"hexcore.disassembler.highlightDangerous": {
+					"type": "boolean",
+					"default": true,
+					"description": "Highlight potentially dangerous instructions"
+				},
+				"hexcore.disassembler.maxFunctionSize": {
+					"type": "number",
+					"default": 65536,
+					"description": "Maximum function size for analysis (bytes)"
+				},
+				"hexcore.disassembler.maxFunctions": {
+					"type": "number",
+					"default": 5000,
+					"description": "Maximum number of functions to discover during analysis"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"dependencies": {
+		"hexcore-capstone": "file:../hexcore-capstone",
+		"hexcore-common": "file:../hexcore-common",
+		"hexcore-llvm-mc": "file:../hexcore-llvm-mc",
+		"hexcore-remill": "file:../hexcore-remill",
+		"hexcore-rellic": "file:../hexcore-rellic"
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.0",
+		"@types/node": "^18.0.0",
+		"@types/vscode": "^1.70.0",
+		"fast-check": "^3.15.0",
+		"typescript": "^5.0.0"
+	}
+}

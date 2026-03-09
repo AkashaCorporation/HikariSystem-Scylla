@@ -1,0 +1,71 @@
+.DS_Store
+.cache
+npm-debug.log
+Thumbs.db
+node_modules/
+.build/
+.vscode/extensions/**/out/
+extensions/**/dist/
+/out*/
+/extensions/**/out/
+build/node_modules
+coverage/
+test_data/
+test-results/
+test-results.xml
+vscode.lsif
+vscode.db
+/.profile-oss
+/cli/target
+/cli/openssl
+product.overrides.json
+*.snap.actual
+*.tsbuildinfo
+.vscode-test
+vscode-telemetry-docs/
+.claude/settings.local.json
+.kiro/
+
+# HexCore Capstone build artifacts
+extensions/hexcore-capstone/deps/
+extensions/hexcore-capstone/build/
+extensions/hexcore-capstone/prebuilds/
+extensions/hexcore-capstone/*.log
+extensions/hexcore-capstone/*.txt
+
+# HexCore Keystone (legacy, superseded by LLVM MC)
+extensions/hexcore-keystone/
+
+# HexCore Unicorn build artifacts
+extensions/hexcore-unicorn/deps/
+extensions/hexcore-unicorn/build/
+extensions/hexcore-unicorn/prebuilds/
+extensions/hexcore-unicorn/build_locked/
+extensions/hexcore-unicorn/build_log.txt
+extensions/hexcore-unicorn/sync_script.bat
+
+# HexCore better-sqlite3 build artifacts
+extensions/hexcore-better-sqlite3/deps/
+extensions/hexcore-better-sqlite3/build/
+extensions/hexcore-better-sqlite3/prebuilds/
+extensions/hexcore-better-sqlite3/sync_sqlite.bat
+
+# HexCore Remill build artifacts
+extensions/hexcore-remill/deps/
+extensions/hexcore-remill/build/
+extensions/hexcore-remill/prebuilds/
+
+# HexCore LLVM MC build artifacts
+extensions/hexcore-llvm-mc/deps/
+extensions/hexcore-llvm-mc/build/
+extensions/hexcore-llvm-mc/prebuilds/
+
+# HexCore automation job files (generated per-workspace)
+*.hexcore_job.json
+
+# Wiki (managed separately by GitHub)
+wiki/
+.agent/
+.claude/
+.kiro/
+.config/

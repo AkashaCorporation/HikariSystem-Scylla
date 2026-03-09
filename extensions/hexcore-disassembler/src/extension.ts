@@ -1,0 +1,2685 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { DisassemblyEditorProvider } from './disassemblyEditor';
+import { FunctionTreeProvider } from './functionTree';
+import { StringRefProvider } from './stringRefTree';
+import { SectionTreeProvider } from './sectionTree';
+import { ImportTreeProvider } from './importTree';
+import { ExportTreeProvider } from './exportTree';
+import { DisassemblerEngine, Instruction } from './disassemblerEngine';
+import { DisassemblerFactory } from './disassemblerFactory';
+import { GraphViewProvider } from './graphViewProvider';
+import {
+	AutomationPipelineRunner,
+	PipelineDoctorReport,
+	PipelineJobValidationReport,
+	PipelineRunStatus,
+	listCapabilities,
+	runPipelineDoctor
+} from './automationPipelineRunner';
+import { buildInstructionFormula, FormulaBuildResult } from './formulaBuilder';
+import { analyzeConstantSanity, ConstantSanityAnalysis } from './constantSanityChecker';
+import { RemillWrapper, buildIRHeader, type LiftResult } from './remillWrapper';
+import { RellicWrapper, buildPseudoCHeader } from './rellicWrapper';
+import { mapCapstoneToRemill } from './archMapper';
+import {
+	PipelineJobTemplate,
+	PipelinePreset,
+	getBuiltInPipelinePresets,
+	getWorkspacePresetFilePath,
+	loadWorkspacePipelinePresets,
+	materializePresetJob,
+	normalizeJobTemplateFromExistingJob,
+	saveWorkspacePipelinePreset
+} from './pipelineProfiles';
+
+type OutputFormat = 'json' | 'md';
+
+interface AnalyzeAllOutputOptions {
+	path: string;
+	format?: OutputFormat;
+}
+
+interface AnalyzeAllCommandOptions {
+	file?: string;
+	output?: AnalyzeAllOutputOptions;
+	quiet?: boolean;
+	maxFunctions?: number;
+	maxFunctionSize?: number;
+	forceReload?: boolean;
+	includeInstructions?: boolean;
+}
+
+interface BuildFormulaCommandOptions {
+	file?: string;
+	startAddress?: string | number;
+	endAddress?: string | number;
+	addresses?: Array<string | number>;
+	targetRegister?: string;
+	output?: AnalyzeAllOutputOptions;
+	quiet?: boolean;
+}
+
+interface CheckConstantsCommandOptions {
+	file?: string;
+	notesFile?: string;
+	maxFindings?: number;
+	output?: AnalyzeAllOutputOptions;
+	quiet?: boolean;
+}
+
+interface AnalyzeAllInstructionEntry {
+	address: string;
+	mnemonic: string;
+	operands: string;
+	bytes: string;
+}
+
+interface AnalyzeAllFunctionSummary {
+	address: string;
+	name: string;
+	size: number;
+	instructionCount: number;
+	callers: number;
+	callees: number;
+	instructions?: AnalyzeAllInstructionEntry[];
+	xrefsTo?: string[];
+	xrefsFrom?: string[];
+}
+
+interface AnalyzeAllStringEntry {
+	address: string;
+	value: string;
+	encoding: string;
+	referencedBy: string[];
+}
+
+interface AnalyzeAllResult {
+	filePath: string;
+	fileName: string;
+	newFunctions: number;
+	totalFunctions: number;
+	totalStrings: number;
+	architecture: string;
+	baseAddress: string;
+	sections: number;
+	imports: number;
+	exports: number;
+	functions: AnalyzeAllFunctionSummary[];
+	strings?: AnalyzeAllStringEntry[];
+	reportMarkdown: string;
+}
+
+interface BuildFormulaResult {
+	filePath: string;
+	fileName: string;
+	startAddress: string;
+	endAddress: string;
+	instructionCount: number;
+	targetRegister: string;
+	expression: string;
+	registerExpressions: Record<string, string>;
+	steps: FormulaBuildResult['steps'];
+	unsupportedInstructions: FormulaBuildResult['unsupportedInstructions'];
+	reportMarkdown: string;
+	generatedAt: string;
+}
+
+interface ConstantSanityResult extends ConstantSanityAnalysis {
+	filePath: string;
+	fileName: string;
+	generatedAt: string;
+}
+
+interface RunJobCommandOptions {
+	jobFile?: string;
+	quiet?: boolean;
+}
+
+interface CommandOutputOptions {
+	output?: string | { path?: string };
+}
+
+interface ValidateJobCommandOptions extends RunJobCommandOptions, CommandOutputOptions { }
+
+interface DoctorCommandOptions extends CommandOutputOptions {
+	quiet?: boolean;
+}
+
+interface ValidateWorkspaceCommandOptions extends CommandOutputOptions {
+	quiet?: boolean;
+	glob?: string;
+}
+
+interface WorkspaceValidationEntry {
+	jobFile: string;
+	ok: boolean;
+	totalSteps: number;
+	errors: number;
+	warnings: number;
+	error?: string;
+}
+
+interface WorkspaceValidationReport {
+	generatedAt: string;
+	workspaceRoots: string[];
+	totalJobs: number;
+	passedJobs: number;
+	failedJobs: number;
+	entries: WorkspaceValidationEntry[];
+}
+
+interface CreatePresetJobCommandOptions extends CommandOutputOptions {
+	preset?: string;
+	file?: string;
+	outDir?: string;
+	jobPath?: string;
+	quiet?: boolean;
+}
+
+interface SaveJobAsProfileCommandOptions extends CommandOutputOptions {
+	name?: string;
+	description?: string;
+	jobFile?: string;
+	quiet?: boolean;
+}
+
+export function activate(context: vscode.ExtensionContext): void {
+	// Use Factory to get the initial global engine (or specific if we knew context)
+	const factory = DisassemblerFactory.getInstance();
+	const engine = factory.getEngine(); // Default global engine for now
+
+	// Event emitter for synchronization between views
+	const onDidChangeActiveEditor = new vscode.EventEmitter<string | undefined>();
+
+	const disasmEditorProvider = new DisassemblyEditorProvider(context, engine, onDidChangeActiveEditor);
+	const functionProvider = new FunctionTreeProvider(engine);
+	const stringRefProvider = new StringRefProvider(engine);
+	const sectionProvider = new SectionTreeProvider(engine);
+	const importProvider = new ImportTreeProvider(engine);
+	const exportProvider = new ExportTreeProvider(engine);
+	const graphViewProvider = new GraphViewProvider(context.extensionUri, engine);
+
+	const ensureAssemblerAvailable = async (): Promise<boolean> => {
+		const availability = await engine.getAssemblerAvailability();
+		if (availability.available) {
+			return true;
+		}
+
+		const detail = availability.error ? ` ${availability.error}` : '';
+		vscode.window.showErrorMessage(
+			vscode.l10n.t('LLVM MC engine is not available.{0}', detail)
+		);
+		return false;
+	};
+
+	const remillWrapper = new RemillWrapper();
+	context.subscriptions.push({ dispose: () => remillWrapper.dispose() });
+	vscode.commands.executeCommand('setContext', 'hexcore:remillAvailable', remillWrapper.isAvailable());
+
+	const rellicWrapper = new RellicWrapper();
+	context.subscriptions.push({ dispose: () => rellicWrapper.dispose() });
+	vscode.commands.executeCommand('setContext', 'hexcore:rellicAvailable', rellicWrapper.isAvailable());
+
+	let shownExperimentalNotice = false;
+
+	const showNativeStatus = async (): Promise<void> => {
+		const disassembler = await engine.getDisassemblerAvailability();
+		const assembler = await engine.getAssemblerAvailability();
+		const remillAvailable = remillWrapper.isAvailable();
+		const rellicAvailable = rellicWrapper.isAvailable();
+
+		if (disassembler.available && assembler.available && remillAvailable && rellicAvailable) {
+			vscode.window.showInformationMessage(
+				vscode.l10n.t('Native engines are available for this session (Capstone + LLVM MC + Remill + Rellic).')
+			);
+			return;
+		}
+
+		const parts: string[] = [];
+		if (!disassembler.available) {
+			parts.push(
+				vscode.l10n.t('Capstone: {0}', disassembler.error ?? vscode.l10n.t('Unavailable'))
+			);
+		}
+		if (!assembler.available) {
+			parts.push(
+				vscode.l10n.t('LLVM MC: {0}', assembler.error ?? vscode.l10n.t('Unavailable'))
+			);
+		}
+		if (!remillAvailable) {
+			parts.push(
+				vscode.l10n.t('Remill: {0}', remillWrapper.getLastError() ?? vscode.l10n.t('Unavailable'))
+			);
+		}
+		if (!rellicAvailable) {
+			parts.push(
+				vscode.l10n.t('Rellic: {0}', rellicWrapper.getLastError() ?? vscode.l10n.t('Unavailable'))
+			);
+		}
+
+		vscode.window.showWarningMessage(
+			vscode.l10n.t('Native engine status: {0}', parts.join(' | '))
+		);
+	};
+
+	const pipelineRunner = new AutomationPipelineRunner();
+	const pendingJobRuns = new Map<string, NodeJS.Timeout>();
+	const activeJobRuns = new Set<string>();
+	const queuedAutoRuns = new Set<string>();
+
+	const executePipelineJob = async (
+		jobFilePath: string,
+		quiet: boolean,
+		autoTriggered: boolean
+	): Promise<PipelineRunStatus | undefined> => {
+		const normalizedPath = path.resolve(jobFilePath);
+		if (activeJobRuns.has(normalizedPath)) {
+			if (autoTriggered) {
+				queuedAutoRuns.add(normalizedPath);
+				return undefined;
+			}
+			if (!quiet) {
+				vscode.window.showWarningMessage(`A HexCore job is already running: ${normalizedPath}`);
+			}
+			return undefined;
+		}
+
+		activeJobRuns.add(normalizedPath);
+		try {
+			const status = await pipelineRunner.runJobFile(normalizedPath, true);
+			if (!quiet) {
+				if (status.status === 'ok') {
+					vscode.window.showInformationMessage(`Pipeline completed successfully. Status file: ${path.join(status.outDir, 'hexcore-pipeline.status.json')}`);
+				} else {
+					vscode.window.showWarningMessage(`Pipeline finished with errors. Check: ${path.join(status.outDir, 'hexcore-pipeline.log')}`);
+				}
+			}
+			return status;
+		} catch (error: unknown) {
+			if (!quiet) {
+				vscode.window.showErrorMessage(`Pipeline execution failed: ${toErrorMessage(error)}`);
+			}
+			throw error;
+		} finally {
+			activeJobRuns.delete(normalizedPath);
+			if (queuedAutoRuns.delete(normalizedPath)) {
+				scheduleJobRun(normalizedPath);
+			}
+		}
+	};
+
+	const runPipelineJob = async (arg?: vscode.Uri | string | RunJobCommandOptions): Promise<PipelineRunStatus | undefined> => {
+		const options = normalizeRunJobCommandOptions(arg);
+		const quiet = options.quiet ?? false;
+		const jobFilePath = resolveJobFilePath(arg, options.jobFile);
+		if (!jobFilePath) {
+			if (!quiet) {
+				vscode.window.showWarningMessage('No .hexcore_job.json file was found.');
+			}
+			return undefined;
+		}
+
+		return executePipelineJob(jobFilePath, quiet, false);
+	};
+
+	const scheduleJobRun = (jobFilePath: string): void => {
+		const normalizedPath = path.resolve(jobFilePath);
+		const existing = pendingJobRuns.get(normalizedPath);
+		if (existing) {
+			clearTimeout(existing);
+		}
+		if (activeJobRuns.has(normalizedPath)) {
+			queuedAutoRuns.add(normalizedPath);
+			return;
+		}
+
+		const timeoutHandle = setTimeout(() => {
+			pendingJobRuns.delete(normalizedPath);
+			executePipelineJob(normalizedPath, true, true).catch(error => {
+				console.error('HexCore pipeline auto-run failed:', error);
+			});
+		}, 350);
+		pendingJobRuns.set(normalizedPath, timeoutHandle);
+	};
+
+	const autoRunExistingJobs = (): void => {
+		const folders = vscode.workspace.workspaceFolders ?? [];
+		for (const folder of folders) {
+			const jobFilePath = path.join(folder.uri.fsPath, '.hexcore_job.json');
+			if (fs.existsSync(jobFilePath)) {
+				scheduleJobRun(jobFilePath);
+			}
+		}
+	};
+
+	// Sync tree views when editor changes
+	onDidChangeActiveEditor.event(() => {
+		functionProvider.refresh();
+		stringRefProvider.refresh();
+		sectionProvider.refresh();
+		importProvider.refresh();
+		exportProvider.refresh();
+	});
+
+	// Register Custom Editor (Main disassembly view)
+	context.subscriptions.push(
+		vscode.window.registerCustomEditorProvider(
+			DisassemblyEditorProvider.viewType,
+			disasmEditorProvider,
+			{
+				webviewOptions: { retainContextWhenHidden: true },
+				supportsMultipleEditorsPerDocument: false
+			}
+		)
+	);
+
+	// Register Webview Providers (Sidebar)
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(
+			'hexcore.disassembler.graphView',
+			graphViewProvider,
+			{ webviewOptions: { retainContextWhenHidden: true } }
+		)
+	);
+
+	// Register Tree Providers
+	context.subscriptions.push(
+		vscode.window.registerTreeDataProvider('hexcore.disassembler.functions', functionProvider),
+		vscode.window.registerTreeDataProvider('hexcore.disassembler.strings', stringRefProvider),
+		vscode.window.registerTreeDataProvider('hexcore.disassembler.sections', sectionProvider),
+		vscode.window.registerTreeDataProvider('hexcore.disassembler.imports', importProvider),
+		vscode.window.registerTreeDataProvider('hexcore.disassembler.exports', exportProvider)
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.pipeline.runJob', async (arg?: vscode.Uri | string | RunJobCommandOptions) => {
+			return runPipelineJob(arg);
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.listCapabilities', async (options?: { output?: string | { path?: string }; quiet?: boolean }) => {
+			const capabilities = listCapabilities();
+			const outputPath = resolveOptionalOutputPath(options?.output);
+
+			if (outputPath) {
+				fs.writeFileSync(outputPath, JSON.stringify(capabilities, null, 2), 'utf8');
+				if (!options?.quiet) {
+					vscode.window.showInformationMessage(`Pipeline capabilities written to ${outputPath}`);
+				}
+				return capabilities;
+			}
+			showCapabilitiesInOutputChannel(capabilities);
+			return capabilities;
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.validateJob', async (arg?: vscode.Uri | string | ValidateJobCommandOptions) => {
+			const options = normalizeValidateJobCommandOptions(arg);
+			const quiet = options.quiet ?? false;
+			const jobFilePath = resolveJobFilePath(arg, options.jobFile);
+			if (!jobFilePath) {
+				if (!quiet) {
+					vscode.window.showWarningMessage('No .hexcore_job.json file was found.');
+				}
+				return undefined;
+			}
+
+			const report = await pipelineRunner.validateJobFile(jobFilePath, true);
+			const outputPath = resolveOptionalOutputPath(options.output);
+			if (outputPath) {
+				writeJsonFile(outputPath, report);
+				if (!quiet) {
+					vscode.window.showInformationMessage(`Pipeline validation report written to ${outputPath}`);
+				}
+			} else if (!quiet) {
+				showValidationReportInOutputChannel(report);
+			}
+
+			if (!quiet) {
+				if (report.ok) {
+					vscode.window.showInformationMessage(`Pipeline validation passed: ${report.totalSteps} steps checked.`);
+				} else {
+					const errors = report.issues.filter(issue => issue.level === 'error').length;
+					const warnings = report.issues.filter(issue => issue.level === 'warning').length;
+					vscode.window.showWarningMessage(`Pipeline validation found issues (${errors} errors, ${warnings} warnings).`);
+				}
+			}
+
+			return report;
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.validateWorkspace', async (arg?: ValidateWorkspaceCommandOptions) => {
+			const options = normalizeValidateWorkspaceCommandOptions(arg);
+			const quiet = options.quiet ?? false;
+			const includePattern = options.glob ?? '**/.hexcore_job.json';
+			const excludePattern = '**/{node_modules,.git,out,dist}/**';
+			const jobFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
+
+			const workspaceRoots = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath);
+			const report: WorkspaceValidationReport = {
+				generatedAt: new Date().toISOString(),
+				workspaceRoots,
+				totalJobs: 0,
+				passedJobs: 0,
+				failedJobs: 0,
+				entries: []
+			};
+
+			if (jobFiles.length === 0) {
+				const outputPath = resolveOptionalOutputPath(options.output);
+				if (outputPath) {
+					writeJsonFile(outputPath, report);
+				}
+				if (!quiet) {
+					vscode.window.showWarningMessage('No .hexcore_job.json files were found in this workspace.');
+				}
+				return report;
+			}
+
+			for (const jobFile of jobFiles.sort((left, right) => left.fsPath.localeCompare(right.fsPath))) {
+				try {
+					const validation = await pipelineRunner.validateJobFile(jobFile.fsPath, true);
+					const errors = validation.issues.filter(issue => issue.level === 'error').length;
+					const warnings = validation.issues.filter(issue => issue.level === 'warning').length;
+					report.entries.push({
+						jobFile: jobFile.fsPath,
+						ok: validation.ok,
+						totalSteps: validation.totalSteps,
+						errors,
+						warnings
+					});
+				} catch (error: unknown) {
+					report.entries.push({
+						jobFile: jobFile.fsPath,
+						ok: false,
+						totalSteps: 0,
+						errors: 1,
+						warnings: 0,
+						error: toErrorMessage(error)
+					});
+				}
+			}
+
+			report.totalJobs = report.entries.length;
+			report.passedJobs = report.entries.filter(entry => entry.ok).length;
+			report.failedJobs = report.totalJobs - report.passedJobs;
+
+			const outputPath = resolveOptionalOutputPath(options.output);
+			if (outputPath) {
+				writeJsonFile(outputPath, report);
+				if (!quiet) {
+					vscode.window.showInformationMessage(`Workspace pipeline validation written to ${outputPath}`);
+				}
+			} else if (!quiet) {
+				showWorkspaceValidationInOutputChannel(report);
+			}
+
+			if (!quiet) {
+				if (report.failedJobs > 0) {
+					vscode.window.showWarningMessage(`Workspace pipeline validation found issues in ${report.failedJobs}/${report.totalJobs} job files.`);
+				} else {
+					vscode.window.showInformationMessage(`Workspace pipeline validation passed for ${report.totalJobs} job files.`);
+				}
+			}
+
+			return report;
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.createPresetJob', async (arg?: CreatePresetJobCommandOptions) => {
+			const options = normalizeCreatePresetJobCommandOptions(arg);
+			const quiet = options.quiet === true;
+			const workspaceRoot = getWorkspaceRootPath();
+			if (!workspaceRoot) {
+				throw new Error('No workspace folder is open.');
+			}
+
+			const presets = [
+				...getBuiltInPipelinePresets(),
+				...loadWorkspacePipelinePresets(workspaceRoot)
+			];
+			if (presets.length === 0) {
+				throw new Error('No pipeline presets are available.');
+			}
+
+			let selectedPreset = resolvePipelinePreset(presets, options.preset);
+			if (!selectedPreset && !quiet) {
+				const picked = await vscode.window.showQuickPick(
+					presets.map(preset => ({
+						label: preset.name,
+						description: preset.source === 'builtin' ? 'Built-in' : 'Workspace',
+						detail: preset.description,
+						preset
+					})),
+					{ placeHolder: 'Select a pipeline preset to generate .hexcore_job.json' }
+				);
+				selectedPreset = picked?.preset;
+			}
+			if (!selectedPreset) {
+				throw new Error('No preset selected. Pass "preset" in options or choose one interactively.');
+			}
+
+			const filePath = await resolvePresetTargetFilePath(options, quiet, workspaceRoot);
+			if (!filePath) {
+				throw new Error('No target file selected for preset job generation.');
+			}
+
+			const outDir = resolvePresetOutDirPath(options, workspaceRoot, selectedPreset.id);
+			const jobPath = resolvePresetJobFilePath(options, workspaceRoot);
+			const job = materializePresetJob(selectedPreset.template, filePath, outDir);
+
+			writeJsonFile(jobPath, job);
+			if (!quiet) {
+				vscode.window.showInformationMessage(`Preset job created (${selectedPreset.name}) at ${jobPath}`);
+			}
+
+			const result = {
+				presetId: selectedPreset.id,
+				presetName: selectedPreset.name,
+				jobFile: jobPath,
+				file: filePath,
+				outDir,
+				steps: job.steps.length
+			};
+
+			const outputPath = resolveOptionalOutputPath(options.output);
+			if (outputPath) {
+				writeJsonFile(outputPath, result);
+			}
+
+			return result;
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.saveJobAsProfile', async (arg?: SaveJobAsProfileCommandOptions) => {
+			const options = normalizeSaveJobAsProfileCommandOptions(arg);
+			const quiet = options.quiet === true;
+			const workspaceRoot = getWorkspaceRootPath();
+			if (!workspaceRoot) {
+				throw new Error('No workspace folder is open.');
+			}
+
+			const jobFilePath = resolveSaveProfileJobFilePath(options, workspaceRoot);
+			if (!fs.existsSync(jobFilePath)) {
+				throw new Error(`Job file not found: ${jobFilePath}`);
+			}
+
+			const raw = JSON.parse(fs.readFileSync(jobFilePath, 'utf8')) as PipelineJobTemplate;
+			validatePipelineJobTemplate(raw, jobFilePath);
+
+			let name = options.name?.trim();
+			if (!name && !quiet) {
+				name = (await vscode.window.showInputBox({
+					prompt: 'Profile name',
+					placeHolder: 'ctf-reverse-custom'
+				}))?.trim();
+			}
+			if (!name) {
+				throw new Error('Profile name is required.');
+			}
+
+			const description = options.description?.trim()
+				?? `Saved from ${path.basename(jobFilePath)}`;
+			const template = normalizeJobTemplateFromExistingJob(raw);
+			const preset = saveWorkspacePipelinePreset(workspaceRoot, name, description, template);
+			const presetFilePath = getWorkspacePresetFilePath(workspaceRoot);
+
+			if (!quiet) {
+				vscode.window.showInformationMessage(`Workspace profile saved (${preset.name}) to ${presetFilePath}`);
+			}
+
+			const result = {
+				id: preset.id,
+				name: preset.name,
+				presetFile: presetFilePath,
+				jobFile: jobFilePath
+			};
+
+			const outputPath = resolveOptionalOutputPath(options.output);
+			if (outputPath) {
+				writeJsonFile(outputPath, result);
+			}
+
+			return result;
+		}),
+		vscode.commands.registerCommand('hexcore.pipeline.doctor', async (options?: DoctorCommandOptions) => {
+			const report = await runPipelineDoctor();
+			const quiet = options?.quiet === true;
+			const outputPath = resolveOptionalOutputPath(options?.output);
+
+			if (outputPath) {
+				writeJsonFile(outputPath, report);
+				if (!quiet) {
+					vscode.window.showInformationMessage(`Pipeline doctor report written to ${outputPath}`);
+				}
+			} else if (!quiet) {
+				showDoctorReportInOutputChannel(report);
+			}
+
+			if (!quiet) {
+				if (report.missingCommands > 0 || report.degradedCommands > 0) {
+					vscode.window.showWarningMessage(
+						`Pipeline doctor found ${report.missingCommands} missing and ${report.degradedCommands} degraded commands.`
+					);
+				} else {
+					vscode.window.showInformationMessage(`Pipeline doctor is healthy: ${report.readyCommands}/${report.totalCapabilities} commands ready.`);
+				}
+			}
+
+			return report;
+		})
+	);
+
+	const jobWatcher = vscode.workspace.createFileSystemWatcher('**/.hexcore_job.json');
+	context.subscriptions.push(jobWatcher);
+	context.subscriptions.push(
+		jobWatcher.onDidCreate(uri => scheduleJobRun(uri.fsPath)),
+		jobWatcher.onDidChange(uri => scheduleJobRun(uri.fsPath))
+	);
+	context.subscriptions.push({
+		dispose: () => {
+			for (const timeoutHandle of pendingJobRuns.values()) {
+				clearTimeout(timeoutHandle);
+			}
+			pendingJobRuns.clear();
+		}
+	});
+
+	autoRunExistingJobs();
+
+	// Register Commands
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.openFile', async () => {
+			const uris = await vscode.window.showOpenDialog({
+				canSelectMany: false,
+				openLabel: 'Open Binary',
+				filters: {
+					'Windows Executables': ['exe', 'dll', 'sys', 'ocx', 'scr', 'cpl'],
+					'Linux Executables': ['elf', 'so', 'a', 'o'],
+					'Raw Binary': ['bin', 'raw', 'dmp'],
+					'All Files': ['*']
+				}
+			});
+			if (uris && uris.length > 0) {
+				// Open in Custom Editor
+				await vscode.commands.executeCommand('vscode.openWith', uris[0], DisassemblyEditorProvider.viewType);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.open', async (uri?: vscode.Uri) => {
+			if (uri) {
+				await vscode.commands.executeCommand('vscode.openWith', uri, DisassemblyEditorProvider.viewType);
+				return;
+			}
+
+			await vscode.commands.executeCommand('hexcore.disasm.openFile');
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.analyzeFile', async (uri?: vscode.Uri) => {
+			if (!uri) {
+				const uris = await vscode.window.showOpenDialog({
+					canSelectMany: false,
+					openLabel: 'Disassemble',
+					filters: {
+						'Executables': ['exe', 'dll', 'elf', 'so', 'bin'],
+						'All Files': ['*']
+					}
+				});
+				if (uris && uris.length > 0) {
+					uri = uris[0];
+				}
+			}
+			if (uri) {
+				try {
+					// Open in custom editor (main disassembly view)
+					await vscode.commands.executeCommand('vscode.openWith', uri, DisassemblyEditorProvider.viewType);
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Failed to disassemble file: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.goToAddress', async (argAddress?: number) => {
+			let addr: number | undefined = argAddress;
+
+			if (addr === undefined) {
+				const input = await vscode.window.showInputBox({
+					prompt: 'Enter address (hex)',
+					placeHolder: '0x401000',
+					validateInput: (value) => {
+						const val = parseInt(value.replace(/^0x/, ''), 16);
+						return isNaN(val) ? 'Invalid hex address' : null;
+					}
+				});
+				if (input) {
+					addr = parseInt(input.replace(/^0x/, ''), 16);
+				}
+			}
+
+			if (addr !== undefined) {
+				const targetAddress = addr;
+				disasmEditorProvider.navigateToAddress(targetAddress);
+
+				// Sync Graph View if function exists - auto-focus graph
+				let func = engine.getFunctionAt(targetAddress);
+				if (!func) {
+					// Try to find containing function
+					const funcs = engine.getFunctions();
+					func = funcs.find(f => targetAddress >= f.address && targetAddress < f.endAddress);
+				}
+
+				if (func && func.instructions.length > 0) {
+					// Auto-focus the graph view and show CFG
+					try {
+						await vscode.commands.executeCommand('hexcore.disassembler.graphView.focus');
+					} catch {
+						// View may not be visible yet, that's ok
+					}
+					graphViewProvider.showFunction(func);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.findXrefs', async () => {
+			const input = await vscode.window.showInputBox({
+				prompt: 'Find references to address',
+				placeHolder: '0x401000'
+			});
+			if (input) {
+				const addr = parseInt(input.replace(/^0x/, ''), 16);
+				const xrefs = await engine.findCrossReferences(addr);
+				disasmEditorProvider.showXrefs(xrefs);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.addComment', async () => {
+			const addr = disasmEditorProvider.getCurrentAddress();
+			if (addr === undefined) {
+				vscode.window.showWarningMessage('No address selected');
+				return;
+			}
+			const comment = await vscode.window.showInputBox({
+				prompt: `Add comment at 0x${addr.toString(16)}`,
+				placeHolder: 'Enter comment...'
+			});
+			if (comment) {
+				engine.addComment(addr, comment);
+				disasmEditorProvider.refresh();
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.renameFunction', async (item?: any) => {
+			const addr = item?.address || disasmEditorProvider.getCurrentAddress();
+			if (addr === undefined) {
+				vscode.window.showWarningMessage('No function selected');
+				return;
+			}
+			const currentName = engine.getFunctionName(addr) || `sub_${addr.toString(16).toUpperCase()}`;
+			const newName = await vscode.window.showInputBox({
+				prompt: 'Rename function',
+				value: currentName
+			});
+			if (newName) {
+				engine.renameFunction(addr, newName);
+				functionProvider.refresh();
+				disasmEditorProvider.refresh();
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.showCFG', async () => {
+			const addr = disasmEditorProvider.getCurrentFunctionAddress();
+			if (addr === undefined) {
+				vscode.window.showWarningMessage('No function selected');
+				return;
+			}
+
+			const func = engine.getFunctionAt(addr);
+			if (func) {
+				// Focus the graph view
+				await vscode.commands.executeCommand('hexcore.disassembler.graphView.focus');
+				// Render the graph
+				graphViewProvider.showFunction(func);
+			} else {
+				vscode.window.showErrorMessage('Function data not found');
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.searchString', async () => {
+			const query = await vscode.window.showInputBox({
+				prompt: 'Search string references',
+				placeHolder: 'Enter string to search...'
+			});
+			if (query) {
+				const results = await engine.searchStringReferences(query);
+				stringRefProvider.setResults(results);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.buildFormula', async (arg?: BuildFormulaCommandOptions) => {
+			const options = normalizeBuildFormulaCommandOptions(arg);
+			const targetFilePath = await resolveAnalyzeAllTargetFilePath(undefined, options, engine);
+			if (!targetFilePath) {
+				throw new Error('No binary file is selected for formula extraction.');
+			}
+
+			const currentFile = engine.getFilePath();
+			if (currentFile !== targetFilePath) {
+				const loaded = await engine.loadFile(targetFilePath);
+				if (!loaded) {
+					throw new Error(`Failed to load file: ${targetFilePath}`);
+				}
+				await engine.analyzeAll();
+			}
+
+			const instructions = await resolveFormulaInstructions(engine, disasmEditorProvider, options);
+			if (instructions.length === 0) {
+				throw new Error('No instructions were resolved for formula extraction.');
+			}
+
+			const formula = buildInstructionFormula(instructions, options.targetRegister);
+			const result = createBuildFormulaResult(targetFilePath, instructions, formula);
+			if (options.output) {
+				writeBuildFormulaOutput(result, options.output);
+			}
+
+			if (!options.quiet) {
+				vscode.window.showInformationMessage(
+					`Formula extracted (${result.targetRegister}): ${result.expression}`
+				);
+			}
+
+			return result;
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.checkConstants', async (arg?: CheckConstantsCommandOptions) => {
+			const options = normalizeCheckConstantsCommandOptions(arg);
+			const targetFilePath = await resolveAnalyzeAllTargetFilePath(undefined, options, engine);
+			if (!targetFilePath) {
+				throw new Error('No binary file is selected for constant sanity check.');
+			}
+
+			const currentFile = engine.getFilePath();
+			if (currentFile !== targetFilePath) {
+				const loaded = await engine.loadFile(targetFilePath);
+				if (!loaded) {
+					throw new Error(`Failed to load file: ${targetFilePath}`);
+				}
+			}
+
+			if (engine.getFunctions().length === 0 || currentFile !== targetFilePath) {
+				await engine.analyzeAll();
+			}
+
+			const notesFilePath = resolveOptionalNotesFilePath(options.notesFile, targetFilePath);
+			const instructions = collectAnalyzedInstructions(engine);
+			const analysis = analyzeConstantSanity(instructions, {
+				notesFilePath,
+				maxFindings: options.maxFindings
+			});
+
+			const result: ConstantSanityResult = {
+				filePath: targetFilePath,
+				fileName: path.basename(targetFilePath),
+				generatedAt: new Date().toISOString(),
+				...analysis
+			};
+
+			if (options.output) {
+				writeConstantSanityOutput(result, options.output);
+			}
+
+			if (!options.quiet) {
+				if (result.mismatchedAnnotations > 0) {
+					vscode.window.showWarningMessage(
+						`Constant sanity checker found ${result.mismatchedAnnotations} mismatches.`
+					);
+				} else {
+					vscode.window.showInformationMessage('Constant sanity checker found no mismatches.');
+				}
+			}
+
+			return result;
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.exportASM', async () => {
+			const uri = await vscode.window.showSaveDialog({
+				filters: { 'Assembly': ['asm', 's'], 'Text': ['txt'] }
+			});
+			if (uri) {
+				await engine.exportAssembly(uri.fsPath);
+				vscode.window.showInformationMessage(`Assembly exported to ${uri.fsPath}`);
+			}
+		})
+	);
+
+	// ============================================================================
+	// Assembly & Patching Commands (LLVM MC)
+	// ============================================================================
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.patchInstruction', async () => {
+			if (!(await ensureAssemblerAvailable())) {
+				return;
+			}
+
+			const addr = disasmEditorProvider.getCurrentAddress();
+			if (addr === undefined) {
+				vscode.window.showWarningMessage('No instruction selected');
+				return;
+			}
+
+			const newCode = await vscode.window.showInputBox({
+				prompt: `Patch instruction at 0x${addr.toString(16)}`,
+				placeHolder: 'mov rax, rbx'
+			});
+
+			if (newCode) {
+				try {
+					const result = await engine.patchInstruction(addr, newCode);
+					if (result.success) {
+						engine.applyPatch(addr, result.bytes);
+						disasmEditorProvider.refresh();
+						const msg = result.nopPadding > 0
+							? `Patched with ${result.nopPadding} NOP padding`
+							: 'Instruction patched successfully';
+						vscode.window.showInformationMessage(msg);
+					} else {
+						vscode.window.showErrorMessage(`Patch failed: ${result.error}`);
+					}
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Patch error: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.nopInstruction', async () => {
+			if (!(await ensureAssemblerAvailable())) {
+				return;
+			}
+
+			const addr = disasmEditorProvider.getCurrentAddress();
+			if (addr === undefined) {
+				vscode.window.showWarningMessage('No instruction selected');
+				return;
+			}
+
+			const confirm = await vscode.window.showQuickPick(['Yes', 'No'], {
+				placeHolder: `NOP instruction at 0x${addr.toString(16)}?`
+			});
+
+			if (confirm === 'Yes') {
+				try {
+					const success = await engine.nopInstruction(addr);
+					if (success) {
+						disasmEditorProvider.refresh();
+						vscode.window.showInformationMessage('Instruction replaced with NOPs');
+					} else {
+						vscode.window.showErrorMessage('Failed to NOP instruction');
+					}
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`NOP error: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.assemble', async () => {
+			if (!(await ensureAssemblerAvailable())) {
+				return;
+			}
+
+			const code = await vscode.window.showInputBox({
+				prompt: 'Assemble instruction',
+				placeHolder: 'mov rax, 0x1234'
+			});
+
+			if (code) {
+				try {
+					const result = await engine.assemble(code);
+					if (result.success) {
+						const hex = result.bytes.toString('hex').toUpperCase().match(/.{2}/g)?.join(' ');
+						vscode.window.showInformationMessage(`${result.size} bytes: ${hex}`);
+					} else {
+						vscode.window.showErrorMessage(`Assembly error: ${result.error}`);
+					}
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Assembly error: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.assembleMultiple', async () => {
+			if (!(await ensureAssemblerAvailable())) {
+				return;
+			}
+
+			const input = await vscode.window.showInputBox({
+				prompt: 'Assemble multiple instructions (separate with ;)',
+				placeHolder: 'push rbp; mov rbp, rsp; sub rsp, 0x20'
+			});
+
+			if (input) {
+				const instructions = input.split(';').map(s => s.trim()).filter(s => s.length > 0);
+				try {
+					const results = await engine.assembleMultiple(instructions);
+					const allBytes: Buffer[] = [];
+					let hasError = false;
+
+					for (const r of results) {
+						if (r.success) {
+							allBytes.push(r.bytes);
+						} else {
+							vscode.window.showErrorMessage(`Error in "${r.statement}": ${r.error}`);
+							hasError = true;
+							break;
+						}
+					}
+
+					if (!hasError) {
+						const combined = Buffer.concat(allBytes);
+						const hex = combined.toString('hex').toUpperCase().match(/.{2}/g)?.join(' ');
+						vscode.window.showInformationMessage(`${combined.length} bytes: ${hex}`);
+					}
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Assembly error: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.savePatchedFile', async () => {
+			const uri = await vscode.window.showSaveDialog({
+				filters: {
+					'Executables': ['exe', 'dll', 'elf', 'so', 'bin'],
+					'All Files': ['*']
+				},
+				saveLabel: 'Save Patched File'
+			});
+
+			if (uri) {
+				try {
+					engine.savePatched(uri.fsPath);
+					vscode.window.showInformationMessage(`Patched file saved to ${uri.fsPath}`);
+				} catch (error: any) {
+					vscode.window.showErrorMessage(`Save error: ${error.message}`);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.setSyntax', async () => {
+			if (!(await ensureAssemblerAvailable())) {
+				return;
+			}
+
+			const syntax = await vscode.window.showQuickPick(['Intel', 'AT&T'], {
+				placeHolder: 'Select assembly syntax'
+			});
+
+			if (syntax) {
+				engine.setAssemblySyntax(syntax === 'Intel' ? 'intel' : 'att');
+				vscode.window.showInformationMessage(`Syntax set to ${syntax}`);
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.showLlvmVersion', () => {
+			engine.getAssemblerAvailability().then((availability) => {
+				if (!availability.available) {
+					const detail = availability.error ? ` ${availability.error}` : '';
+					vscode.window.showErrorMessage(
+						vscode.l10n.t('LLVM MC engine is not available.{0}', detail)
+					);
+					return;
+				}
+				const version = engine.getLlvmVersion();
+				vscode.window.showInformationMessage(`LLVM MC Version: ${version}`);
+			});
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.nativeStatus', async () => {
+			await showNativeStatus();
+		})
+	);
+
+	// -----------------------------------------------------------------------
+	// [Experimental] Lift to LLVM IR
+	// -----------------------------------------------------------------------
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.liftToIR', async (arg?: unknown) => {
+			// Headless mode: arg is an options object with file/startAddress/size
+			const isHeadless = arg !== null && arg !== undefined && typeof arg === 'object'
+				&& !((arg as any) instanceof vscode.Uri)
+				&& ('file' in (arg as Record<string, unknown>) || 'startAddress' in (arg as Record<string, unknown>));
+
+			const options = isHeadless ? arg as Record<string, unknown> : {};
+			const quiet = options.quiet === true;
+
+			if (!remillWrapper.isAvailable()) {
+				const errorMsg = 'hexcore-remill is not available. Install the prebuild or build from source.';
+				if (quiet) {
+					return { success: false, ir: '', address: 0, bytesConsumed: 0, architecture: '', error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const arch = engine.getArchitecture();
+			const mapping = mapCapstoneToRemill(arch);
+			if (!mapping.supported) {
+				const errorMsg = `Architecture '${arch}' is not supported by Remill. Supported: x86, x64, arm64.`;
+				if (quiet) {
+					return { success: false, ir: '', address: 0, bytesConsumed: 0, architecture: arch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			let startAddress: number;
+			let size: number;
+			let functionName: string | undefined;
+
+			// Resolve bytes: from headless options, selected function, or user input
+			if (isHeadless && options.file) {
+				// Headless: load file if needed
+				const filePath = String(options.file);
+				if (!engine.isFileLoaded() || engine.getFilePath() !== filePath) {
+					const loaded = await engine.loadFile(filePath);
+					if (!loaded) {
+						const errorMsg = `Failed to load file: ${filePath}`;
+						if (quiet) {
+							return { success: false, ir: '', address: 0, bytesConsumed: 0, architecture: '', error: errorMsg };
+						}
+						vscode.window.showErrorMessage(errorMsg);
+						return undefined;
+					}
+				}
+				startAddress = parseAddressValue(options.startAddress as string | number | undefined) ?? engine.getBaseAddress();
+				size = typeof options.size === 'number' ? options.size : engine.getBufferSize();
+			} else if (isHeadless && options.functionAddress !== undefined) {
+				startAddress = typeof options.functionAddress === 'number' ? options.functionAddress : 0;
+				const func = engine.getFunctionAt(startAddress);
+				if (func) {
+					size = func.endAddress - func.address;
+					functionName = func.name;
+				} else {
+					size = typeof options.size === 'number' ? options.size : 256;
+				}
+			} else {
+				// Interactive: ask user for address and size
+				const addrInput = await vscode.window.showInputBox({
+					prompt: 'Start address (hex, e.g. 0x401000)',
+					placeHolder: '0x401000',
+				});
+				if (!addrInput) {
+					return undefined;
+				}
+				startAddress = parseInt(addrInput, 16);
+				if (isNaN(startAddress)) {
+					vscode.window.showErrorMessage(`Invalid address: ${addrInput}`);
+					return undefined;
+				}
+
+				const sizeInput = await vscode.window.showInputBox({
+					prompt: 'Size in bytes',
+					placeHolder: '256',
+					value: '256',
+				});
+				if (!sizeInput) {
+					return undefined;
+				}
+				size = parseInt(sizeInput, 10);
+				if (isNaN(size) || size <= 0) {
+					vscode.window.showErrorMessage(`Invalid size: ${sizeInput}`);
+					return undefined;
+				}
+			}
+
+			// Extract bytes from engine buffer (addressToOffset handles VA→file offset)
+			if (!engine.isFileLoaded()) {
+				const errorMsg = 'No binary file is loaded. Open a file in the disassembler first.';
+				if (quiet) {
+					return { success: false, ir: '', address: startAddress, bytesConsumed: 0, architecture: mapping.remillArch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const bytes = engine.getBytes(startAddress, size);
+			if (!bytes || bytes.length === 0) {
+				const loadedFile = engine.getFilePath() ? path.basename(engine.getFilePath()!) : 'unknown';
+				const base = engine.getBaseAddress();
+				const bufSize = engine.getBufferSize();
+				const errorMsg = `Address 0x${startAddress.toString(16)} is outside the loaded binary "${loadedFile}" (base=0x${base.toString(16)}, size=0x${bufSize.toString(16)}).`;
+				if (quiet) {
+					return { success: false, ir: '', address: startAddress, bytesConsumed: 0, architecture: mapping.remillArch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+			// Update size to actual bytes extracted (may be truncated at file boundary)
+			size = bytes.length;
+
+			// Perform lifting with progress indicator
+			const liftResult = await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Notification,
+					title: '[Experimental] Lifting to LLVM IR...',
+					cancellable: false,
+				},
+				async () => {
+					return remillWrapper.liftBytes(bytes, startAddress, arch);
+				}
+			);
+
+			if (!liftResult.success) {
+				const errorMsg = `Lift failed: ${liftResult.error}`;
+				if (quiet) {
+					return { success: false, ir: '', address: startAddress, bytesConsumed: liftResult.bytesConsumed, architecture: mapping.remillArch, error: liftResult.error };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const fileName = engine.getFilePath() ? path.basename(engine.getFilePath()!) : 'unknown';
+			const header = buildIRHeader({
+				fileName,
+				address: startAddress,
+				size,
+				architecture: mapping.remillArch,
+				functionName,
+			});
+
+			const fullIR = header + liftResult.ir;
+
+			// Headless: write to file if output specified
+			if (isHeadless && options.output) {
+				const outputPath = typeof options.output === 'string'
+					? options.output
+					: (options.output as { path: string }).path;
+				fs.writeFileSync(outputPath, fullIR, 'utf-8');
+				return {
+					success: true,
+					ir: fullIR,
+					address: startAddress,
+					bytesConsumed: liftResult.bytesConsumed,
+					architecture: mapping.remillArch,
+					functionName,
+				};
+			}
+
+			if (quiet) {
+				return {
+					success: true,
+					ir: fullIR,
+					address: startAddress,
+					bytesConsumed: liftResult.bytesConsumed,
+					architecture: mapping.remillArch,
+					functionName,
+				};
+			}
+
+			// Interactive: open IR in a new editor tab (readonly)
+			const doc = await vscode.workspace.openTextDocument({
+				content: fullIR,
+				language: 'llvm',
+			});
+			await vscode.window.showTextDocument(doc, { preview: false });
+
+			// Mark the editor as readonly for this session
+			await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession');
+
+			// Show experimental notice once per session
+			if (!shownExperimentalNotice) {
+				shownExperimentalNotice = true;
+				vscode.window.showInformationMessage(
+					'[Experimental] LLVM IR lifting is experimental. Output may be incomplete or inaccurate.'
+				);
+			}
+
+			return {
+				success: true,
+				ir: fullIR,
+				address: startAddress,
+				bytesConsumed: liftResult.bytesConsumed,
+				architecture: mapping.remillArch,
+				functionName,
+			};
+		})
+	);
+
+	// -----------------------------------------------------------------------
+	// [Experimental] Decompile to pseudo-C (Lifting + Rellic)
+	// -----------------------------------------------------------------------
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.rellic.decompile', async (arg?: unknown) => {
+			const isHeadless = arg !== null && arg !== undefined && typeof arg === 'object'
+				&& !((arg as any) instanceof vscode.Uri)
+				&& ('file' in (arg as Record<string, unknown>) || 'startAddress' in (arg as Record<string, unknown>));
+
+			const options = isHeadless ? arg as Record<string, unknown> : {};
+			const quiet = options.quiet === true;
+
+			if (!remillWrapper.isAvailable()) {
+				const errorMsg = 'hexcore-remill is not available. Cannot lift machine code to IR.';
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			if (!rellicWrapper.isAvailable()) {
+				const errorMsg = 'hexcore-rellic is not available. Install the prebuild or build from source.';
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const arch = engine.getArchitecture();
+			const mapping = mapCapstoneToRemill(arch);
+			if (!mapping.supported) {
+				const errorMsg = `Architecture '${arch}' is not supported by Remill.`;
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: '', architecture: String(arch), error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			let startAddress: number;
+			let size: number;
+			let functionName: string | undefined;
+
+			if (isHeadless && options.file) {
+				const filePath = String(options.file);
+				if (!engine.isFileLoaded() || engine.getFilePath() !== filePath) {
+					const loaded = await engine.loadFile(filePath);
+					if (!loaded) {
+						const errorMsg = `Failed to load file: ${filePath}`;
+						if (quiet) {
+							return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: errorMsg };
+						}
+						vscode.window.showErrorMessage(errorMsg);
+						return undefined;
+					}
+				}
+				startAddress = parseAddressValue(options.startAddress as string | number | undefined) ?? engine.getBaseAddress();
+				size = typeof options.size === 'number' ? options.size : engine.getBufferSize();
+			} else if (isHeadless && options.functionAddress !== undefined) {
+				startAddress = typeof options.functionAddress === 'number' ? options.functionAddress : 0;
+				const func = engine.getFunctionAt(startAddress);
+				if (func) {
+					size = func.endAddress - func.address;
+					functionName = func.name;
+				} else {
+					size = typeof options.size === 'number' ? options.size : 256;
+				}
+			} else {
+				const addrInput = await vscode.window.showInputBox({
+					prompt: 'Start address (hex, e.g. 0x401000)',
+					placeHolder: '0x401000',
+				});
+				if (!addrInput) {
+					return undefined;
+				}
+				startAddress = parseInt(addrInput, 16);
+				if (isNaN(startAddress)) {
+					vscode.window.showErrorMessage(`Invalid address: ${addrInput}`);
+					return undefined;
+				}
+
+				const sizeInput = await vscode.window.showInputBox({
+					prompt: 'Size in bytes',
+					placeHolder: '256',
+					value: '256',
+				});
+				if (!sizeInput) {
+					return undefined;
+				}
+				size = parseInt(sizeInput, 10);
+				if (isNaN(size) || size <= 0) {
+					vscode.window.showErrorMessage(`Invalid size: ${sizeInput}`);
+					return undefined;
+				}
+			}
+
+			if (!engine.isFileLoaded()) {
+				const errorMsg = 'No binary file is loaded.';
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: `0x${startAddress.toString(16)}`, architecture: mapping.remillArch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const bytes = engine.getBytes(startAddress, size);
+			if (!bytes || bytes.length === 0) {
+				const errorMsg = `Address 0x${startAddress.toString(16)} is outside the loaded binary.`;
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: `0x${startAddress.toString(16)}`, architecture: mapping.remillArch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			// Step 1: Lift to IR
+			const liftResult = await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: '[Experimental] Lifting to LLVM IR...', cancellable: false },
+				async () => remillWrapper.liftBytes(bytes, startAddress, arch)
+			);
+
+			if (!liftResult.success) {
+				const errorMsg = `Lift failed: ${liftResult.error}`;
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: `0x${startAddress.toString(16)}`, architecture: mapping.remillArch, error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			// Step 2: Decompile IR to pseudo-C
+			const decompileResult = await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: '[Experimental] Decompiling to pseudo-C...', cancellable: false },
+				async () => rellicWrapper.decompile(liftResult.ir)
+			);
+
+			if (!decompileResult.success) {
+				const errorMsg = `Decompilation failed: ${decompileResult.error}`;
+				if (!quiet) {
+					const action = await vscode.window.showErrorMessage(errorMsg, 'View IR');
+					if (action === 'View IR') {
+						const doc = await vscode.workspace.openTextDocument({ content: liftResult.ir, language: 'llvm' });
+						await vscode.window.showTextDocument(doc, { preview: false });
+					}
+				}
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: `0x${startAddress.toString(16)}`, architecture: mapping.remillArch, error: decompileResult.error };
+				}
+				return undefined;
+			}
+
+			const fileName = engine.getFilePath() ? path.basename(engine.getFilePath()!) : 'unknown';
+			const addressStr = `0x${startAddress.toString(16).padStart(8, '0')}`;
+			const header = buildPseudoCHeader({
+				fileName,
+				address: addressStr,
+				architecture: mapping.remillArch,
+				functionName,
+			});
+
+			const fullCode = header + decompileResult.code;
+
+			if (isHeadless && options.output) {
+				const outputPath = typeof options.output === 'string' ? options.output : (options.output as { path: string }).path;
+				fs.writeFileSync(outputPath, fullCode, 'utf-8');
+			}
+
+			if (quiet) {
+				return {
+					success: true,
+					code: fullCode,
+					functionCount: decompileResult.functionCount,
+					address: addressStr,
+					architecture: mapping.remillArch,
+					error: '',
+				};
+			}
+
+			const doc = await vscode.workspace.openTextDocument({ content: fullCode, language: 'c' });
+			await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+			await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession');
+
+			return {
+				success: true,
+				code: fullCode,
+				functionCount: decompileResult.functionCount,
+				address: addressStr,
+				architecture: mapping.remillArch,
+				error: '',
+			};
+		})
+	);
+
+	// -----------------------------------------------------------------------
+	// [Experimental] Decompile IR to pseudo-C (direct IR input)
+	// -----------------------------------------------------------------------
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.rellic.decompileIR', async (arg?: unknown) => {
+			const isHeadless = arg !== null && arg !== undefined && typeof arg === 'object'
+				&& !((arg as any) instanceof vscode.Uri)
+				&& ('file' in (arg as Record<string, unknown>) || 'irText' in (arg as Record<string, unknown>));
+
+			const options = isHeadless ? arg as Record<string, unknown> : {};
+			const quiet = options.quiet === true;
+
+			if (!rellicWrapper.isAvailable()) {
+				const errorMsg = 'hexcore-rellic is not available.';
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: errorMsg };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			let irText: string;
+
+			if (isHeadless && typeof options.irText === 'string') {
+				irText = options.irText;
+			} else if (isHeadless && typeof options.file === 'string') {
+				if (!fs.existsSync(options.file)) {
+					const errorMsg = `File not found: ${options.file}`;
+					if (quiet) {
+						return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: errorMsg };
+					}
+					vscode.window.showErrorMessage(errorMsg);
+					return undefined;
+				}
+				irText = fs.readFileSync(options.file, 'utf-8');
+			} else {
+				const activeEditor = vscode.window.activeTextEditor;
+				if (!activeEditor) {
+					vscode.window.showErrorMessage('No active editor with LLVM IR content.');
+					return undefined;
+				}
+				irText = activeEditor.document.getText();
+			}
+
+			const decompileResult = await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: '[Experimental] Decompiling IR to pseudo-C...', cancellable: false },
+				async () => rellicWrapper.decompile(irText)
+			);
+
+			if (!decompileResult.success) {
+				const errorMsg = `Decompilation failed: ${decompileResult.error}`;
+				if (quiet) {
+					return { success: false, code: '', functionCount: 0, address: '', architecture: '', error: decompileResult.error };
+				}
+				vscode.window.showErrorMessage(errorMsg);
+				return undefined;
+			}
+
+			const fullCode = decompileResult.code;
+
+			if (isHeadless && options.output) {
+				const outputPath = typeof options.output === 'string' ? options.output : (options.output as { path: string }).path;
+				fs.writeFileSync(outputPath, fullCode, 'utf-8');
+			}
+
+			if (quiet) {
+				return {
+					success: true,
+					code: fullCode,
+					functionCount: decompileResult.functionCount,
+					address: '',
+					architecture: '',
+					error: '',
+				};
+			}
+
+			const doc = await vscode.workspace.openTextDocument({ content: fullCode, language: 'c' });
+			await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+			await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession');
+
+			return {
+				success: true,
+				code: fullCode,
+				functionCount: decompileResult.functionCount,
+				address: '',
+				architecture: '',
+				error: '',
+			};
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.analyzeAll', async (arg?: vscode.Uri | AnalyzeAllCommandOptions) => {
+			const options = normalizeAnalyzeAllCommandOptions(arg);
+			const targetFilePath = await resolveAnalyzeAllTargetFilePath(arg, options, engine);
+			if (!targetFilePath) {
+				const errorMessage = 'No binary file is selected for analysis.';
+				if (options.quiet) {
+					throw new Error(errorMessage);
+				}
+				vscode.window.showWarningMessage(errorMessage);
+				return undefined;
+			}
+
+			const runAnalysis = async (progress?: vscode.Progress<{ message?: string }>): Promise<number> => {
+				engine.reloadConfig();
+				const currentFile = engine.getFilePath();
+				const forceReload = shouldForceReloadAnalyzeAll(options);
+				if (forceReload || currentFile !== targetFilePath) {
+					progress?.report({ message: `Loading ${path.basename(targetFilePath)}...` });
+					const loaded = await engine.loadFile(targetFilePath);
+					if (!loaded) {
+						throw new Error(`Failed to load file: ${targetFilePath}`);
+					}
+				}
+
+				const defaultLimits = engine.getAnalysisLimits();
+				const requestedLimits = resolveAnalyzeAllLimits(options);
+				const overrideMaxFunctions = requestedLimits.maxFunctions ?? defaultLimits.maxFunctions;
+				const overrideMaxFunctionSize = requestedLimits.maxFunctionSize ?? defaultLimits.maxFunctionSize;
+				const hasOverride = overrideMaxFunctions !== defaultLimits.maxFunctions
+					|| overrideMaxFunctionSize !== defaultLimits.maxFunctionSize;
+
+				if (hasOverride) {
+					engine.setAnalysisLimits(overrideMaxFunctions, overrideMaxFunctionSize);
+					progress?.report({
+						message: `Applying limits (maxFunctions=${overrideMaxFunctions}, maxFunctionSize=${overrideMaxFunctionSize})...`
+					});
+				}
+
+				try {
+					progress?.report({ message: 'Scanning for function prologs and references...' });
+					return engine.analyzeAll();
+				} finally {
+					if (hasOverride) {
+						engine.setAnalysisLimits(defaultLimits.maxFunctions, defaultLimits.maxFunctionSize);
+					}
+				}
+			};
+
+			const newFunctions = options.quiet
+				? await runAnalysis()
+				: await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: 'Analyzing binary...',
+						cancellable: false
+					},
+					async progress => runAnalysis(progress)
+				);
+
+			functionProvider.refresh();
+			stringRefProvider.refresh();
+			sectionProvider.refresh();
+			importProvider.refresh();
+			exportProvider.refresh();
+
+			const result = createAnalyzeAllResult(engine, targetFilePath, newFunctions, options.includeInstructions === true);
+			if (options.output) {
+				writeAnalyzeAllOutput(result, options.output);
+			}
+
+			if (!options.quiet) {
+				vscode.window.showInformationMessage(
+					`Analysis complete: ${result.newFunctions} new functions found (${result.totalFunctions} total)`
+				);
+			}
+
+			return result;
+		})
+	);
+
+	// ============================================================================
+	// Headless Commands (Pipeline-safe, no UI prompts)
+	// ============================================================================
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.searchStringHeadless', async (arg?: Record<string, unknown>) => {
+			const query = typeof arg?.query === 'string' ? arg.query : undefined;
+			if (!query) {
+				throw new Error('searchStringHeadless requires a "query" argument.');
+			}
+
+			const filePath = typeof arg?.file === 'string' ? arg.file : undefined;
+			const quietMode = arg?.quiet === true;
+			const outputOptions = arg?.output as AnalyzeAllOutputOptions | undefined;
+
+			if (filePath) {
+				const currentFile = engine.getFilePath();
+				if (currentFile !== filePath) {
+					const loaded = await engine.loadFile(filePath);
+					if (!loaded) {
+						throw new Error(`Failed to load file: ${filePath}`);
+					}
+					await engine.analyzeAll();
+				}
+			}
+
+			const results = await engine.searchStringReferences(query);
+
+			const exportData = {
+				query,
+				totalMatches: results.length,
+				matches: results.map((sr: any) => ({
+					address: toHexAddress(sr.address),
+					string: sr.string,
+					encoding: sr.encoding,
+					references: sr.references.map((addr: number) => toHexAddress(addr))
+				})),
+				generatedAt: new Date().toISOString()
+			};
+
+			if (outputOptions?.path) {
+				fs.mkdirSync(path.dirname(outputOptions.path), { recursive: true });
+				fs.writeFileSync(outputOptions.path, JSON.stringify(exportData, null, 2), 'utf8');
+			}
+
+			if (!quietMode) {
+				vscode.window.showInformationMessage(`String search: ${results.length} matches for "${query}"`);
+			}
+
+			return exportData;
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('hexcore.disasm.exportASMHeadless', async (arg?: Record<string, unknown>) => {
+			const rawOutput = arg?.output;
+			const outputObject = typeof rawOutput === 'object' && rawOutput !== null
+				? rawOutput as { path?: unknown }
+				: undefined;
+			const outputPath = typeof outputObject?.path === 'string'
+				? outputObject.path
+				: undefined;
+			if (!outputPath) {
+				throw new Error('exportASMHeadless requires an "output.path" argument.');
+			}
+
+			const filePath = typeof arg?.file === 'string' ? arg.file : undefined;
+			const quietMode = arg?.quiet === true;
+			const functionAddress = typeof arg?.functionAddress === 'string'
+				? parseInt(arg.functionAddress.replace(/^0x/i, ''), 16)
+				: undefined;
+
+			if (filePath) {
+				const currentFile = engine.getFilePath();
+				if (currentFile !== filePath) {
+					const loaded = await engine.loadFile(filePath);
+					if (!loaded) {
+						throw new Error(`Failed to load file: ${filePath}`);
+					}
+					await engine.analyzeAll();
+				}
+			}
+
+			fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+			if (functionAddress !== undefined && !isNaN(functionAddress)) {
+				// Export single function
+				const func = engine.getFunctionAt(functionAddress);
+				if (!func) {
+					throw new Error(`No function found at address 0x${functionAddress.toString(16).toUpperCase()}`);
+				}
+				let asmContent = `; Function: ${func.name} @ 0x${func.address.toString(16).toUpperCase()}\n`;
+				asmContent += `; Size: ${func.size} bytes, ${func.instructions.length} instructions\n\n`;
+				for (const inst of func.instructions) {
+					const hex = inst.bytes.toString('hex').toUpperCase().padEnd(16, ' ');
+					const comment = inst.comment ? `  ; ${inst.comment}` : '';
+					asmContent += `0x${inst.address.toString(16).toUpperCase()}  ${hex}  ${inst.mnemonic} ${inst.opStr}${comment}\n`;
+				}
+				fs.writeFileSync(outputPath, asmContent, 'utf8');
+			} else {
+				// Export all functions
+				await engine.exportAssembly(outputPath);
+			}
+
+			if (!quietMode) {
+				const label = functionAddress !== undefined
+					? `function at 0x${functionAddress.toString(16).toUpperCase()}`
+					: 'all functions';
+				vscode.window.showInformationMessage(`Assembly exported (${label}) to ${outputPath}`);
+			}
+
+			return { outputPath, generatedAt: new Date().toISOString() };
+		})
+	);
+
+	console.log('HexCore Disassembler extension activated');
+}
+
+export function deactivate(): void {
+	DisassemblerFactory.getInstance().disposeAll();
+}
+
+function normalizeAnalyzeAllCommandOptions(arg?: vscode.Uri | AnalyzeAllCommandOptions): AnalyzeAllCommandOptions {
+	if (arg instanceof vscode.Uri || arg === undefined) {
+		return {};
+	}
+
+	const raw = arg as AnalyzeAllCommandOptions;
+	const normalized: AnalyzeAllCommandOptions = {};
+
+	if (typeof raw.file === 'string') {
+		normalized.file = raw.file;
+	}
+	if (raw.output) {
+		normalized.output = raw.output;
+	}
+	if (typeof raw.quiet === 'boolean') {
+		normalized.quiet = raw.quiet;
+	}
+	if (raw.maxFunctions !== undefined) {
+		normalized.maxFunctions = parsePositiveIntegerOption(raw.maxFunctions, 'maxFunctions');
+	}
+	if (raw.maxFunctionSize !== undefined) {
+		normalized.maxFunctionSize = parsePositiveIntegerOption(raw.maxFunctionSize, 'maxFunctionSize');
+	}
+	if (raw.forceReload !== undefined) {
+		if (typeof raw.forceReload !== 'boolean') {
+			throw new Error('Invalid "forceReload" option: expected boolean.');
+		}
+		normalized.forceReload = raw.forceReload;
+	}
+	if (raw.includeInstructions !== undefined) {
+		normalized.includeInstructions = raw.includeInstructions === true;
+	}
+
+	return normalized;
+}
+
+async function resolveAnalyzeAllTargetFilePath(
+	arg: vscode.Uri | AnalyzeAllCommandOptions | undefined,
+	options: AnalyzeAllCommandOptions,
+	engine: DisassemblerEngine
+): Promise<string | undefined> {
+	if (arg instanceof vscode.Uri && arg.scheme === 'file') {
+		return arg.fsPath;
+	}
+
+	if (typeof options.file === 'string' && options.file.length > 0) {
+		return path.resolve(options.file);
+	}
+
+	const activeFilePath = getActiveFilePath();
+	if (activeFilePath) {
+		return activeFilePath;
+	}
+
+	const loadedFilePath = engine.getFilePath();
+	if (loadedFilePath) {
+		return loadedFilePath;
+	}
+
+	if (options.quiet) {
+		return undefined;
+	}
+
+	const uris = await vscode.window.showOpenDialog({
+		canSelectMany: false,
+		openLabel: 'Analyze',
+		filters: {
+			'Executables': ['exe', 'dll', 'elf', 'so', 'bin'],
+			'All Files': ['*']
+		}
+	});
+	return uris?.[0]?.fsPath;
+}
+
+function getActiveFilePath(): string | undefined {
+	const uri = vscode.window.activeTextEditor?.document.uri;
+	if (!uri || uri.scheme !== 'file') {
+		return undefined;
+	}
+	return uri.fsPath;
+}
+
+function shouldForceReloadAnalyzeAll(options: AnalyzeAllCommandOptions): boolean {
+	if (typeof options.forceReload === 'boolean') {
+		return options.forceReload;
+	}
+	return options.quiet === true;
+}
+
+function resolveAnalyzeAllLimits(options: AnalyzeAllCommandOptions): { maxFunctions?: number; maxFunctionSize?: number } {
+	return {
+		maxFunctions: options.maxFunctions,
+		maxFunctionSize: options.maxFunctionSize
+	};
+}
+
+function parsePositiveIntegerOption(value: number, optionName: string): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		throw new Error(`Invalid "${optionName}" option: expected finite number.`);
+	}
+	const normalized = Math.floor(value);
+	if (normalized < 1) {
+		throw new Error(`Invalid "${optionName}" option: expected value >= 1.`);
+	}
+	return normalized;
+}
+
+function normalizeBuildFormulaCommandOptions(arg?: BuildFormulaCommandOptions): BuildFormulaCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+
+	const normalized: BuildFormulaCommandOptions = {
+		file: arg.file,
+		targetRegister: typeof arg.targetRegister === 'string' ? arg.targetRegister : undefined,
+		output: arg.output,
+		quiet: arg.quiet === true
+	};
+
+	if (arg.startAddress !== undefined) {
+		normalized.startAddress = arg.startAddress;
+	}
+	if (arg.endAddress !== undefined) {
+		normalized.endAddress = arg.endAddress;
+	}
+	if (Array.isArray(arg.addresses)) {
+		normalized.addresses = [...arg.addresses];
+	}
+
+	return normalized;
+}
+
+function normalizeCheckConstantsCommandOptions(arg?: CheckConstantsCommandOptions): CheckConstantsCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+
+	const normalized: CheckConstantsCommandOptions = {
+		file: arg.file,
+		notesFile: arg.notesFile,
+		output: arg.output,
+		quiet: arg.quiet === true
+	};
+
+	if (arg.maxFindings !== undefined) {
+		normalized.maxFindings = parsePositiveIntegerOption(arg.maxFindings, 'maxFindings');
+	}
+
+	return normalized;
+}
+
+function normalizeValidateJobCommandOptions(arg?: vscode.Uri | string | ValidateJobCommandOptions): ValidateJobCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+	if (arg instanceof vscode.Uri) {
+		return { jobFile: arg.fsPath };
+	}
+	if (typeof arg === 'string') {
+		return { jobFile: arg };
+	}
+	return arg;
+}
+
+function normalizeValidateWorkspaceCommandOptions(arg?: ValidateWorkspaceCommandOptions): ValidateWorkspaceCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+	return arg;
+}
+
+function normalizeRunJobCommandOptions(arg?: vscode.Uri | string | RunJobCommandOptions): RunJobCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+	if (arg instanceof vscode.Uri) {
+		return { jobFile: arg.fsPath };
+	}
+	if (typeof arg === 'string') {
+		return { jobFile: arg };
+	}
+	return arg;
+}
+
+function normalizeCreatePresetJobCommandOptions(arg?: CreatePresetJobCommandOptions): CreatePresetJobCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+	return arg;
+}
+
+function normalizeSaveJobAsProfileCommandOptions(arg?: SaveJobAsProfileCommandOptions): SaveJobAsProfileCommandOptions {
+	if (arg === undefined) {
+		return {};
+	}
+	return arg;
+}
+
+function resolvePipelinePreset(presets: PipelinePreset[], hint?: string): PipelinePreset | undefined {
+	if (!hint) {
+		return undefined;
+	}
+	const normalizedHint = hint.trim().toLowerCase();
+	return presets.find(preset =>
+		preset.id.toLowerCase() === normalizedHint ||
+		preset.name.toLowerCase() === normalizedHint
+	);
+}
+
+async function resolvePresetTargetFilePath(
+	options: CreatePresetJobCommandOptions,
+	quiet: boolean,
+	workspaceRoot: string
+): Promise<string | undefined> {
+	if (typeof options.file === 'string' && options.file.length > 0) {
+		return resolveRelativeOrAbsolutePath(workspaceRoot, options.file);
+	}
+
+	const activeFilePath = getActiveFilePath();
+	if (activeFilePath) {
+		return activeFilePath;
+	}
+
+	if (quiet) {
+		return undefined;
+	}
+
+	const uris = await vscode.window.showOpenDialog({
+		canSelectMany: false,
+		openLabel: 'Select Target Binary for Preset Job',
+		filters: {
+			'Executables': ['exe', 'dll', 'elf', 'so', 'bin'],
+			'All Files': ['*']
+		}
+	});
+
+	return uris?.[0]?.fsPath;
+}
+
+function resolvePresetOutDirPath(
+	options: CreatePresetJobCommandOptions,
+	workspaceRoot: string,
+	presetId: string
+): string {
+	if (typeof options.outDir === 'string' && options.outDir.length > 0) {
+		return resolveRelativeOrAbsolutePath(workspaceRoot, options.outDir);
+	}
+	const safePreset = sanitizeFileName(presetId);
+	return path.join(workspaceRoot, 'hexcore-reports', safePreset);
+}
+
+function resolvePresetJobFilePath(options: CreatePresetJobCommandOptions, workspaceRoot: string): string {
+	if (typeof options.jobPath === 'string' && options.jobPath.length > 0) {
+		return resolveRelativeOrAbsolutePath(workspaceRoot, options.jobPath);
+	}
+	return path.join(workspaceRoot, '.hexcore_job.json');
+}
+
+function resolveSaveProfileJobFilePath(options: SaveJobAsProfileCommandOptions, workspaceRoot: string): string {
+	if (typeof options.jobFile === 'string' && options.jobFile.length > 0) {
+		return resolveRelativeOrAbsolutePath(workspaceRoot, options.jobFile);
+	}
+	return path.join(workspaceRoot, '.hexcore_job.json');
+}
+
+function validatePipelineJobTemplate(template: unknown, jobFilePath: string): asserts template is PipelineJobTemplate {
+	if (!isRecord(template)) {
+		throw new Error(`Invalid job format in ${jobFilePath}: expected JSON object`);
+	}
+	if (typeof template.file !== 'string' || template.file.trim().length === 0) {
+		throw new Error(`Invalid job format in ${jobFilePath}: missing "file"`);
+	}
+	if (typeof template.outDir !== 'string' || template.outDir.trim().length === 0) {
+		throw new Error(`Invalid job format in ${jobFilePath}: missing "outDir"`);
+	}
+	if (!Array.isArray(template.steps) || template.steps.length === 0) {
+		throw new Error(`Invalid job format in ${jobFilePath}: "steps" must be a non-empty array`);
+	}
+}
+
+function resolveRelativeOrAbsolutePath(baseDir: string, candidate: string): string {
+	return path.isAbsolute(candidate)
+		? candidate
+		: path.resolve(baseDir, candidate);
+}
+
+function getWorkspaceRootPath(): string | undefined {
+	return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+function resolveOptionalOutputPath(output?: string | { path?: string }): string | undefined {
+	if (typeof output === 'string' && output.length > 0) {
+		return path.resolve(output);
+	}
+	if (typeof output === 'object' && output !== null && typeof output.path === 'string' && output.path.length > 0) {
+		return path.resolve(output.path);
+	}
+	return undefined;
+}
+
+function resolveJobFilePath(arg: vscode.Uri | string | RunJobCommandOptions | undefined, explicitPath?: string): string | undefined {
+	if (typeof explicitPath === 'string' && explicitPath.length > 0) {
+		return path.resolve(explicitPath);
+	}
+
+	if (arg instanceof vscode.Uri) {
+		return arg.fsPath;
+	}
+
+	if (typeof arg === 'string' && arg.length > 0) {
+		return path.resolve(arg);
+	}
+
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	for (const folder of folders) {
+		const candidate = path.join(folder.uri.fsPath, '.hexcore_job.json');
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	return undefined;
+}
+
+function writeJsonFile(outputPath: string, data: unknown): void {
+	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+	fs.writeFileSync(outputPath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function showCapabilitiesInOutputChannel(capabilities: ReturnType<typeof listCapabilities>): void {
+	const outputChannel = vscode.window.createOutputChannel('HexCore Pipeline');
+	outputChannel.clear();
+	outputChannel.appendLine('HexCore Pipeline - Command Capabilities');
+	outputChannel.appendLine('='.repeat(50));
+	outputChannel.appendLine('');
+	for (const cap of capabilities) {
+		const status = cap.headless ? 'HEADLESS' : 'INTERACTIVE';
+		outputChannel.appendLine(`[${status}] ${cap.command}`);
+		if (cap.aliases.length > 0) {
+			outputChannel.appendLine(`  Aliases:    ${cap.aliases.join(', ')}`);
+		}
+		outputChannel.appendLine(`  Timeout:    ${cap.defaultTimeoutMs}ms`);
+		outputChannel.appendLine(`  Validates:  ${cap.validateOutput}`);
+		outputChannel.appendLine(`  Extension:  ${cap.requiredExtension.join(', ')}`);
+		if (cap.reason) {
+			outputChannel.appendLine(`  Note:       ${cap.reason}`);
+		}
+		outputChannel.appendLine('');
+	}
+	outputChannel.show();
+}
+
+function showValidationReportInOutputChannel(report: PipelineJobValidationReport): void {
+	const outputChannel = vscode.window.createOutputChannel('HexCore Pipeline');
+	outputChannel.clear();
+	outputChannel.appendLine('HexCore Pipeline - Job Validation');
+	outputChannel.appendLine('='.repeat(50));
+	outputChannel.appendLine(`Job file:   ${report.jobFile}`);
+	outputChannel.appendLine(`Target:     ${report.file}`);
+	outputChannel.appendLine(`Output dir: ${report.outDir}`);
+	outputChannel.appendLine(`Steps:      ${report.totalSteps}`);
+	outputChannel.appendLine(`Result:     ${report.ok ? 'OK' : 'ISSUES FOUND'}`);
+	outputChannel.appendLine('');
+
+	if (report.issues.length > 0) {
+		outputChannel.appendLine('Issues:');
+		for (const issue of report.issues) {
+			const stepInfo = issue.stepIndex ? ` (step ${issue.stepIndex})` : '';
+			outputChannel.appendLine(`- [${issue.level.toUpperCase()}] ${issue.code}${stepInfo}: ${issue.message}`);
+		}
+		outputChannel.appendLine('');
+	}
+
+	outputChannel.appendLine('Step Matrix:');
+	for (const step of report.steps) {
+		outputChannel.appendLine(
+			`- #${step.index} ${step.cmd} -> ${step.resolvedCmd} | declared=${step.declared} | headless=${step.headless} | registered=${step.registered} | output=${step.outputPath ?? '(none)'}`
+		);
+	}
+	outputChannel.show();
+}
+
+function showWorkspaceValidationInOutputChannel(report: WorkspaceValidationReport): void {
+	const outputChannel = vscode.window.createOutputChannel('HexCore Pipeline');
+	outputChannel.clear();
+	outputChannel.appendLine('HexCore Pipeline - Workspace Validation');
+	outputChannel.appendLine('='.repeat(50));
+	outputChannel.appendLine(`Generated: ${report.generatedAt}`);
+	outputChannel.appendLine(`Workspaces: ${report.workspaceRoots.length > 0 ? report.workspaceRoots.join(' | ') : '(none)'}`);
+	outputChannel.appendLine(`Jobs: ${report.totalJobs} | Passed: ${report.passedJobs} | Failed: ${report.failedJobs}`);
+	outputChannel.appendLine('');
+
+	for (const entry of report.entries) {
+		const status = entry.ok ? 'OK' : 'FAIL';
+		outputChannel.appendLine(`[${status}] ${entry.jobFile}`);
+		outputChannel.appendLine(`  Steps: ${entry.totalSteps} | Errors: ${entry.errors} | Warnings: ${entry.warnings}`);
+		if (entry.error) {
+			outputChannel.appendLine(`  Error: ${entry.error}`);
+		}
+		outputChannel.appendLine('');
+	}
+
+	outputChannel.show();
+}
+
+function showDoctorReportInOutputChannel(report: PipelineDoctorReport): void {
+	const outputChannel = vscode.window.createOutputChannel('HexCore Pipeline');
+	outputChannel.clear();
+	outputChannel.appendLine('HexCore Pipeline - Doctor');
+	outputChannel.appendLine('='.repeat(50));
+	outputChannel.appendLine(`Workspace:            ${report.workspaceRoot}`);
+	outputChannel.appendLine(`Capabilities:         ${report.totalCapabilities}`);
+	outputChannel.appendLine(`Ready:                ${report.readyCommands}`);
+	outputChannel.appendLine(`Degraded:             ${report.degradedCommands}`);
+	outputChannel.appendLine(`Missing:              ${report.missingCommands}`);
+	outputChannel.appendLine(`Registered hexcore.*: ${report.registeredHexcoreCommands}`);
+	outputChannel.appendLine('');
+
+	if (report.undeclaredHexcoreCommands.length > 0) {
+		outputChannel.appendLine('Undeclared registered commands (hexcore.*):');
+		for (const command of report.undeclaredHexcoreCommands) {
+			outputChannel.appendLine(`- ${command}`);
+		}
+		outputChannel.appendLine('');
+	}
+
+	for (const entry of report.entries) {
+		outputChannel.appendLine(`[${entry.readiness.toUpperCase()}] ${entry.command}`);
+		if (entry.aliases.length > 0) {
+			outputChannel.appendLine(`  Aliases:    ${entry.aliases.join(', ')}`);
+		}
+		outputChannel.appendLine(`  Headless:   ${entry.headless}`);
+		outputChannel.appendLine(`  Registered: ${entry.registered}`);
+		outputChannel.appendLine(`  Timeout:    ${entry.defaultTimeoutMs}ms`);
+		outputChannel.appendLine(`  Validate:   ${entry.validateOutput}`);
+		if (entry.reason) {
+			outputChannel.appendLine(`  Note:       ${entry.reason}`);
+		}
+		if (entry.ownerExtensions.length > 0) {
+			outputChannel.appendLine(
+				`  Owners:     ${entry.ownerExtensions.map(owner => `${owner.id} (installed=${owner.installed}, active=${owner.active})`).join('; ')}`
+			);
+		}
+		outputChannel.appendLine('');
+	}
+
+	outputChannel.show();
+}
+
+function createAnalyzeAllResult(engine: DisassemblerEngine, targetFilePath: string, newFunctions: number, includeInstructions: boolean = false): AnalyzeAllResult {
+	const functions = engine.getFunctions();
+	const MAX_INSTRUCTIONS_PER_FUNCTION = 200;
+
+	const functionSummaries: AnalyzeAllFunctionSummary[] = functions.map(func => {
+		const summary: AnalyzeAllFunctionSummary = {
+			address: toHexAddress(func.address),
+			name: func.name,
+			size: func.size,
+			instructionCount: func.instructions.length,
+			callers: func.callers.length,
+			callees: func.callees.length
+		};
+
+		if (includeInstructions) {
+			summary.instructions = func.instructions.slice(0, MAX_INSTRUCTIONS_PER_FUNCTION).map(inst => ({
+				address: toHexAddress(inst.address),
+				mnemonic: inst.mnemonic,
+				operands: inst.opStr,
+				bytes: inst.bytes.toString('hex').toUpperCase()
+			}));
+			summary.xrefsTo = func.callers.map(addr => toHexAddress(addr));
+			summary.xrefsFrom = func.callees.map(addr => toHexAddress(addr));
+		}
+
+		return summary;
+	});
+
+	const result: AnalyzeAllResult = {
+		filePath: targetFilePath,
+		fileName: path.basename(targetFilePath),
+		newFunctions,
+		totalFunctions: functions.length,
+		totalStrings: engine.getStrings().length,
+		architecture: engine.getArchitecture(),
+		baseAddress: toHexAddress(engine.getBaseAddress()),
+		sections: engine.getSections().length,
+		imports: engine.getImports().length,
+		exports: engine.getExports().length,
+		functions: functionSummaries,
+		reportMarkdown: ''
+	};
+
+	if (includeInstructions) {
+		const stringRefs = engine.getStrings();
+		result.strings = stringRefs.slice(0, 5000).map(sr => ({
+			address: toHexAddress(sr.address),
+			value: sr.string,
+			encoding: sr.encoding,
+			referencedBy: sr.references.map(addr => toHexAddress(addr))
+		}));
+	}
+
+	result.reportMarkdown = generateAnalyzeAllReport(result);
+	return result;
+}
+
+function generateAnalyzeAllReport(result: AnalyzeAllResult): string {
+	let report = `# HexCore Disassembly Analysis Report
+
+## File Information
+
+| Property | Value |
+|----------|-------|
+| **File Name** | ${result.fileName} |
+| **File Path** | ${result.filePath} |
+| **Architecture** | ${result.architecture} |
+| **Base Address** | ${result.baseAddress} |
+
+---
+
+## Analysis Summary
+
+| Metric | Value |
+|--------|-------|
+| **New Functions** | ${result.newFunctions} |
+| **Total Functions** | ${result.totalFunctions} |
+| **Total Strings** | ${result.totalStrings} |
+| **Sections** | ${result.sections} |
+| **Imports** | ${result.imports} |
+| **Exports** | ${result.exports} |
+
+---
+
+## Functions (Top 100)
+
+| Address | Name | Size | Instructions | Callers | Callees |
+|---------|------|------|--------------|---------|---------|
+`;
+
+	for (const func of result.functions.slice(0, 100)) {
+		report += `| ${func.address} | ${func.name} | ${func.size} | ${func.instructionCount} | ${func.callers} | ${func.callees} |\n`;
+	}
+
+	if (result.functions.length > 100) {
+		report += `| ... | ... | ... | ... | ... | ... |\n`;
+	}
+
+	report += `
+---
+*Generated by HexCore Disassembler*
+`;
+
+	return report;
+}
+
+function writeAnalyzeAllOutput(result: AnalyzeAllResult, output: AnalyzeAllOutputOptions): void {
+	const format = normalizeOutputFormat(output.path, output.format);
+	fs.mkdirSync(path.dirname(output.path), { recursive: true });
+
+	if (format === 'md') {
+		fs.writeFileSync(output.path, result.reportMarkdown, 'utf8');
+		return;
+	}
+
+	fs.writeFileSync(
+		output.path,
+		JSON.stringify(
+			{
+				filePath: result.filePath,
+				fileName: result.fileName,
+				newFunctions: result.newFunctions,
+				totalFunctions: result.totalFunctions,
+				totalStrings: result.totalStrings,
+				architecture: result.architecture,
+				baseAddress: result.baseAddress,
+				sections: result.sections,
+				imports: result.imports,
+				exports: result.exports,
+				functions: result.functions,
+				generatedAt: new Date().toISOString()
+			},
+			null,
+			2
+		),
+		'utf8'
+	);
+}
+
+async function resolveFormulaInstructions(
+	engine: DisassemblerEngine,
+	disasmEditorProvider: DisassemblyEditorProvider,
+	options: BuildFormulaCommandOptions
+): Promise<Instruction[]> {
+	if (options.addresses && options.addresses.length > 0) {
+		const parsedAddresses = options.addresses
+			.map(address => parseAddressValue(address))
+			.filter((address): address is number => address !== undefined);
+		if (parsedAddresses.length === 0) {
+			throw new Error('No valid instruction addresses were provided.');
+		}
+
+		const instructions: Instruction[] = [];
+		for (const address of parsedAddresses) {
+			const instruction = findInstructionByAddress(engine, address);
+			if (!instruction) {
+				throw new Error(`Instruction not found at ${toHexAddress(address)}.`);
+			}
+			instructions.push(instruction);
+		}
+		return instructions.sort((left, right) => left.address - right.address);
+	}
+
+	let startAddress = parseAddressValue(options.startAddress);
+	let endAddress = parseAddressValue(options.endAddress);
+	if (startAddress === undefined && !options.quiet) {
+		const defaultStart = disasmEditorProvider.getCurrentAddress();
+		const input = await vscode.window.showInputBox({
+			prompt: 'Formula Start Address (hex or decimal)',
+			placeHolder: defaultStart !== undefined ? toHexAddress(defaultStart) : '0x401000',
+			value: defaultStart !== undefined ? toHexAddress(defaultStart) : undefined,
+			validateInput: value => parseAddressValue(value) === undefined ? 'Invalid address' : null
+		});
+		if (input) {
+			startAddress = parseAddressValue(input);
+		}
+	}
+
+	if (startAddress === undefined) {
+		startAddress = disasmEditorProvider.getCurrentAddress();
+	}
+	if (startAddress === undefined) {
+		throw new Error('Formula extraction requires a start address.');
+	}
+
+	if (endAddress === undefined && !options.quiet) {
+		const startHex = toHexAddress(startAddress);
+		const input = await vscode.window.showInputBox({
+			prompt: 'Formula End Address (hex or decimal)',
+			placeHolder: startHex,
+			value: startHex,
+			validateInput: value => parseAddressValue(value) === undefined ? 'Invalid address' : null
+		});
+		if (input) {
+			endAddress = parseAddressValue(input);
+		}
+	}
+
+	if (endAddress === undefined) {
+		endAddress = startAddress;
+	}
+
+	return collectInstructionsInRange(engine, startAddress, endAddress);
+}
+
+function collectInstructionsInRange(engine: DisassemblerEngine, startAddress: number, endAddress: number): Instruction[] {
+	const from = Math.min(startAddress, endAddress);
+	const to = Math.max(startAddress, endAddress);
+
+	const containing = engine.getFunctions().find(func =>
+		from >= func.address && from < func.endAddress
+	);
+	if (!containing) {
+		throw new Error(`No containing function found for ${toHexAddress(from)}.`);
+	}
+
+	const instructions = containing.instructions
+		.filter(instruction => instruction.address >= from && instruction.address <= to)
+		.sort((left, right) => left.address - right.address);
+	if (instructions.length === 0) {
+		throw new Error(`No instructions found in range ${toHexAddress(from)}..${toHexAddress(to)}.`);
+	}
+	return instructions;
+}
+
+function findInstructionByAddress(engine: DisassemblerEngine, address: number): Instruction | undefined {
+	for (const func of engine.getFunctions()) {
+		const instruction = func.instructions.find(item => item.address === address);
+		if (instruction) {
+			return instruction;
+		}
+	}
+	return undefined;
+}
+
+function createBuildFormulaResult(
+	filePath: string,
+	instructions: Instruction[],
+	formula: FormulaBuildResult
+): BuildFormulaResult {
+	const sorted = [...instructions].sort((left, right) => left.address - right.address);
+	const startAddress = sorted[0]?.address ?? 0;
+	const endAddress = sorted[sorted.length - 1]?.address ?? 0;
+
+	return {
+		filePath,
+		fileName: path.basename(filePath),
+		startAddress: toHexAddress(startAddress),
+		endAddress: toHexAddress(endAddress),
+		instructionCount: formula.instructionCount,
+		targetRegister: formula.targetRegister,
+		expression: formula.expression,
+		registerExpressions: formula.registerExpressions,
+		steps: formula.steps,
+		unsupportedInstructions: formula.unsupportedInstructions,
+		reportMarkdown: formula.reportMarkdown,
+		generatedAt: new Date().toISOString()
+	};
+}
+
+function writeBuildFormulaOutput(result: BuildFormulaResult, output: AnalyzeAllOutputOptions): void {
+	const outputPath = path.resolve(output.path);
+	const format = normalizeOutputFormat(outputPath, output.format);
+	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+	if (format === 'md') {
+		fs.writeFileSync(outputPath, result.reportMarkdown, 'utf8');
+		return;
+	}
+
+	fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf8');
+}
+
+function writeConstantSanityOutput(result: ConstantSanityResult, output: AnalyzeAllOutputOptions): void {
+	const outputPath = path.resolve(output.path);
+	const format = normalizeOutputFormat(outputPath, output.format);
+	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+	if (format === 'md') {
+		fs.writeFileSync(outputPath, result.reportMarkdown, 'utf8');
+		return;
+	}
+
+	fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf8');
+}
+
+function collectAnalyzedInstructions(engine: DisassemblerEngine): Instruction[] {
+	const byAddress = new Map<number, Instruction>();
+	for (const func of engine.getFunctions()) {
+		for (const instruction of func.instructions) {
+			if (!byAddress.has(instruction.address)) {
+				byAddress.set(instruction.address, instruction);
+			}
+		}
+	}
+	return Array.from(byAddress.values()).sort((left, right) => left.address - right.address);
+}
+
+function resolveOptionalNotesFilePath(candidate: string | undefined, targetFilePath: string): string | undefined {
+	if (typeof candidate !== 'string' || candidate.trim().length === 0) {
+		return undefined;
+	}
+
+	const normalizedCandidate = candidate.trim();
+	if (path.isAbsolute(normalizedCandidate)) {
+		return normalizedCandidate;
+	}
+
+	const workspaceRoot = getWorkspaceRootPath();
+	if (workspaceRoot) {
+		return path.resolve(workspaceRoot, normalizedCandidate);
+	}
+
+	return path.resolve(path.dirname(targetFilePath), normalizedCandidate);
+}
+
+function parseAddressValue(value: string | number | undefined): number | undefined {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		const normalized = Math.floor(value);
+		return normalized >= 0 ? normalized : undefined;
+	}
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+
+	const text = value.trim();
+	if (text.length === 0) {
+		return undefined;
+	}
+	if (/^-?0x[0-9a-f]+$/i.test(text)) {
+		return parseInt(text, 16);
+	}
+	if (/^[0-9]+$/i.test(text)) {
+		return parseInt(text, 10);
+	}
+	return undefined;
+}
+
+function normalizeOutputFormat(outputPath: string, format?: OutputFormat): OutputFormat {
+	if (format === 'json' || format === 'md') {
+		return format;
+	}
+	return path.extname(outputPath).toLowerCase() === '.md' ? 'md' : 'json';
+}
+
+function toHexAddress(address: number): string {
+	return `0x${address.toString(16).toUpperCase()}`;
+}
+
+function sanitizeFileName(value: string): string {
+	return value
+		.replace(/[^a-zA-Z0-9._-]+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-|-$/g, '')
+		.toLowerCase() || 'default';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return String(error);
+}
+

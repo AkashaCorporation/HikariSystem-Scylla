@@ -1,0 +1,214 @@
+{
+	"name": "hexcore-debugger",
+	"displayName": "HexCore Debugger",
+	"description": "Emulation-based debugger using Unicorn Engine for PE/ELF binary analysis",
+	"version": "2.1.0",
+	"publisher": "hikarisystem",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.70.0"
+	},
+	"categories": [
+		"Debuggers",
+		"Testing"
+	],
+	"keywords": [
+		"debugger",
+		"emulation",
+		"unicorn",
+		"dynamic analysis",
+		"PE",
+		"ELF",
+		"api tracing"
+	],
+	"activationEvents": [
+		"onCommand:hexcore.debug.emulate",
+		"onCommand:hexcore.debug.emulateWithArch",
+		"onCommand:hexcore.debug.emulationStep",
+		"onCommand:hexcore.debug.emulationContinue",
+		"onCommand:hexcore.debug.emulationBreakpoint",
+		"onCommand:hexcore.debug.emulationReadMemory",
+		"onCommand:hexcore.debug.setStdin",
+		"onCommand:hexcore.debug.saveSnapshot",
+		"onCommand:hexcore.debug.restoreSnapshot",
+		"onCommand:hexcore.debug.unicornStatus",
+		"onCommand:hexcore.debug.emulateHeadless",
+		"onCommand:hexcore.debug.continueHeadless",
+		"onCommand:hexcore.debug.stepHeadless",
+		"onCommand:hexcore.debug.readMemoryHeadless",
+		"onCommand:hexcore.debug.getRegistersHeadless",
+		"onCommand:hexcore.debug.setBreakpointHeadless",
+		"onCommand:hexcore.debug.getStateHeadless",
+		"onCommand:hexcore.debug.snapshotHeadless",
+		"onCommand:hexcore.debug.restoreSnapshotHeadless",
+		"onCommand:hexcore.debug.exportTraceHeadless",
+		"onView:hexcore.debugger.view",
+		"onView:hexcore.debugger.trace"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "hexcore.debug.unicornStatus",
+				"title": "Show Unicorn Engine Status",
+				"category": "HexCore Debugger"
+			},
+			{
+				"command": "hexcore.debug.emulate",
+				"title": "Emulate: Start Emulation",
+				"category": "HexCore Debugger",
+				"icon": "$(vm)"
+			},
+			{
+				"command": "hexcore.debug.emulateWithArch",
+				"title": "Emulate: Start with Architecture",
+				"category": "HexCore Debugger",
+				"icon": "$(vm)"
+			},
+			{
+				"command": "hexcore.debug.emulationStep",
+				"title": "Emulate: Step Instruction",
+				"category": "HexCore Debugger",
+				"icon": "$(debug-step-into)"
+			},
+			{
+				"command": "hexcore.debug.emulationContinue",
+				"title": "Emulate: Continue",
+				"category": "HexCore Debugger",
+				"icon": "$(debug-continue)"
+			},
+			{
+				"command": "hexcore.debug.emulationBreakpoint",
+				"title": "Emulate: Set Breakpoint",
+				"category": "HexCore Debugger",
+				"icon": "$(debug-breakpoint)"
+			},
+			{
+				"command": "hexcore.debug.emulationReadMemory",
+				"title": "Emulate: Read Memory",
+				"category": "HexCore Debugger",
+				"icon": "$(file-binary)"
+			},
+			{
+				"command": "hexcore.debug.setStdin",
+				"title": "Emulate: Set STDIN Buffer",
+				"category": "HexCore Debugger",
+				"icon": "$(edit)"
+			},
+			{
+				"command": "hexcore.debug.saveSnapshot",
+				"title": "Emulate: Save Snapshot",
+				"category": "HexCore Debugger",
+				"icon": "$(save)"
+			},
+			{
+				"command": "hexcore.debug.restoreSnapshot",
+				"title": "Emulate: Restore Snapshot",
+				"category": "HexCore Debugger",
+				"icon": "$(history)"
+			},
+			{
+				"command": "hexcore.debug.emulateHeadless",
+				"title": "Emulate: Start Emulation (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.continueHeadless",
+				"title": "Emulate: Continue (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.stepHeadless",
+				"title": "Emulate: Step (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.readMemoryHeadless",
+				"title": "Emulate: Read Memory (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.getRegistersHeadless",
+				"title": "Emulate: Get Registers (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.setBreakpointHeadless",
+				"title": "Emulate: Set Breakpoint (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.getStateHeadless",
+				"title": "Emulate: Get State (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.snapshotHeadless",
+				"title": "Emulate: Save Snapshot (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.restoreSnapshotHeadless",
+				"title": "Emulate: Restore Snapshot (Headless)",
+				"category": "HexCore Automation"
+			},
+			{
+				"command": "hexcore.debug.exportTraceHeadless",
+				"title": "Emulate: Export Trace (Headless)",
+				"category": "HexCore Automation"
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "hexcore-debugger",
+					"title": "Debugger",
+					"icon": "$(debug-alt)"
+				}
+			]
+		},
+		"views": {
+			"hexcore-debugger": [
+				{
+					"type": "webview",
+					"id": "hexcore.debugger.view",
+					"name": "Debug Session"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.debugger.registers",
+					"name": "Registers"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.debugger.memory",
+					"name": "Memory"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.debugger.stack",
+					"name": "Stack"
+				},
+				{
+					"type": "tree",
+					"id": "hexcore.debugger.trace",
+					"name": "API Trace"
+				}
+			]
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"dependencies": {
+		"hexcore-common": "file:../hexcore-common",
+		"hexcore-unicorn": "file:../hexcore-unicorn"
+	},
+	"devDependencies": {
+		"@types/node": "^18.0.0",
+		"@types/vscode": "^1.70.0",
+		"fast-check": "^3.15.0",
+		"typescript": "^5.0.0"
+	}
+}

@@ -1,0 +1,121 @@
+{
+	"nameShort": "Scylla Studio",
+	"nameLong": "HikariSystem Scylla Studio",
+	"applicationName": "scylla-studio",
+	"dataFolderName": ".scylla-studio",
+	"win32MutexName": "scylla-studio",
+	"licenseName": "GNU GPL v3.0",
+	"licenseUrl": "https://github.com/AkashaCorporation/HikariSystem-Scylla/blob/main/LICENSE",
+	"serverLicenseUrl": "https://github.com/AkashaCorporation/HikariSystem-Scylla/blob/main/LICENSE",
+	"serverGreeting": [],
+	"serverLicense": [],
+	"serverLicensePrompt": "",
+	"serverApplicationName": "scylla-server",
+	"serverDataFolderName": ".scylla-server",
+	"tunnelApplicationName": "scylla-tunnel",
+	"win32DirName": "HikariSystem Scylla Studio",
+	"win32NameVersion": "HikariSystem Scylla Studio",
+	"win32RegValueName": "ScyllaStudio",
+	"win32x64AppId": "{{9ABCF5B8-5C5D-48AD-A215-AEA00E82DE8D}",
+	"win32arm64AppId": "{{5F420E57-851F-4E47-A7B2-A881DEF4D03C}",
+	"win32x64UserAppId": "{{6D9F6542-F3CB-41D1-8226-82422D0D1FC6}",
+	"win32arm64UserAppId": "{{987532BB-9249-4408-AE7E-614D5C0C7801}",
+	"win32AppUserModelId": "HikariSystem.ScyllaStudio",
+	"win32ShellNameShort": "Scy&lla",
+	"win32TunnelServiceMutex": "scylla-tunnelservice",
+	"win32TunnelMutex": "scylla-tunnel",
+	"darwinBundleIdentifier": "com.hikarisystem.scylla",
+	"darwinProfileUUID": "DBA30FCD-7181-4550-8CE1-07C85EC4F043",
+	"darwinProfilePayloadUUID": "281BBF5E-618B-4C85-90DF-626DB0E15AE9",
+	"linuxIconName": "scylla-studio",
+	"licenseFileName": "LICENSE",
+	"reportIssueUrl": "https://github.com/AkashaCorporation/HikariSystem-Scylla/issues/new",
+	"nodejsRepository": "https://nodejs.org",
+	"urlProtocol": "scylla",
+	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
+	"extensionsGallery": {
+		"serviceUrl": "https://open-vsx.org/vscode/gallery",
+		"itemUrl": "https://open-vsx.org/vscode/item",
+		"resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
+		"controlUrl": "",
+		"nlsBaseUrl": "",
+		"publisherUrl": "https://open-vsx.org/namespace/{publisher}",
+		"extensionUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}"
+	},
+	"linkProtectionTrustedDomains": [
+		"https://open-vsx.org"
+	],
+	"configurationDefaults": {
+		"extensions.verifySignature": false
+	},
+	"builtInExtensions": [],
+	"defaultChatAgent": {
+		"extensionId": "GitHub.copilot",
+		"chatExtensionId": "GitHub.copilot-chat",
+		"chatExtensionOutputId": "GitHub.copilot-chat.GitHub Copilot Chat.log",
+		"documentationUrl": "https://aka.ms/github-copilot-overview",
+		"termsStatementUrl": "https://aka.ms/github-copilot-terms-statement",
+		"privacyStatementUrl": "https://aka.ms/github-copilot-privacy-statement",
+		"skusDocumentationUrl": "https://aka.ms/github-copilot-plans",
+		"publicCodeMatchesUrl": "https://aka.ms/github-copilot-match-public-code",
+		"manageSettingsUrl": "https://aka.ms/github-copilot-settings",
+		"managePlanUrl": "https://aka.ms/github-copilot-manage-plan",
+		"manageOverageUrl": "https://aka.ms/github-copilot-manage-overage",
+		"upgradePlanUrl": "https://aka.ms/github-copilot-upgrade-plan",
+		"signUpUrl": "https://aka.ms/github-sign-up",
+		"provider": {
+			"default": {
+				"id": "github",
+				"name": "GitHub"
+			},
+			"enterprise": {
+				"id": "github-enterprise",
+				"name": "GHE.com"
+			},
+			"google": {
+				"id": "google",
+				"name": "Google"
+			},
+			"apple": {
+				"id": "apple",
+				"name": "Apple"
+			}
+		},
+		"providerUriSetting": "github-enterprise.uri",
+		"providerScopes": [
+			[
+				"read:user",
+				"user:email",
+				"repo",
+				"workflow"
+			],
+			[
+				"user:email"
+			],
+			[
+				"read:user"
+			]
+		],
+		"entitlementUrl": "https://api.github.com/copilot_internal/user",
+		"entitlementSignupLimitedUrl": "https://api.github.com/copilot_internal/subscribe_limited_user",
+		"chatQuotaExceededContext": "github.copilot.chat.quotaExceeded",
+		"completionsQuotaExceededContext": "github.copilot.completions.quotaExceeded",
+		"walkthroughCommand": "github.copilot.open.walkthrough",
+		"completionsMenuCommand": "github.copilot.toggleStatusMenu",
+		"completionsRefreshTokenCommand": "github.copilot.signIn",
+		"chatRefreshTokenCommand": "github.copilot.refreshToken",
+		"generateCommitMessageCommand": "github.copilot.git.generateCommitMessage",
+		"resolveMergeConflictsCommand": "github.copilot.git.resolveMergeConflicts",
+		"completionsAdvancedSetting": "github.copilot.advanced",
+		"completionsEnablementSetting": "github.copilot.enable",
+		"nextEditSuggestionsSetting": "github.copilot.nextEditSuggestions.enabled"
+	},
+	"trustedExtensionAuthAccess": {
+		"github": [
+			"GitHub.copilot-chat"
+		],
+		"github-enterprise": [
+			"GitHub.copilot-chat"
+		]
+	}
+}

@@ -1,0 +1,30 @@
+src/**
+test/**
+build/**
+binding.gyp
+.gitignore
+.eslintrc*
+tsconfig.json
+**/*.map
+**/*.obj
+**/*.o
+**/*.lib
+**/*.a
+**/*.exp
+**/*.pdb
+**/*.zip
+.vs/**
+_*.py
+
+# Deps: exclude build-time only dirs (headers, static libs, etc.)
+deps/gflags/**
+deps/glog/**
+deps/llvm/**
+deps/xed/**
+deps/remill/include/**
+deps/remill/lib/**
+# Keep: deps/remill/share/semantics/*.bc (runtime requirement)
+
+# Prebuilds: force include (overrides .gitignore)
+!prebuilds/
+!prebuilds/**

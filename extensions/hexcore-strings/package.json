@@ -1,0 +1,68 @@
+{
+	"name": "hexcore-strings",
+	"displayName": "HexCore Strings Extractor",
+	"description": "Extract ASCII/Unicode strings with XOR deobfuscation and stack-string detection",
+	"version": "1.2.0",
+	"publisher": "hikarisystem",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.60.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"keywords": [
+		"strings",
+		"binary",
+		"malware",
+		"reverse engineering",
+		"forensics",
+		"xor",
+		"deobfuscation",
+		"stack strings"
+	],
+	"activationEvents": [
+		"onCommand:hexcore.strings.extract",
+		"onCommand:hexcore.strings.extractAdvanced"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "hexcore.strings.extract",
+				"title": "HexCore: Extract Strings",
+				"category": "HexCore"
+			},
+			{
+				"command": "hexcore.strings.extractAdvanced",
+				"title": "HexCore: Extract Strings (Advanced — XOR + Stack)",
+				"category": "HexCore"
+			}
+		],
+		"menus": {
+			"explorer/context": [
+				{
+					"command": "hexcore.strings.extract",
+					"group": "hexcore@3",
+					"when": "resourceScheme == file"
+				},
+				{
+					"command": "hexcore.strings.extractAdvanced",
+					"group": "hexcore@3",
+					"when": "resourceScheme == file"
+				}
+			]
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.0",
+		"@types/node": "^18.0.0",
+		"@types/vscode": "^1.60.0",
+		"fast-check": "^3.15.0",
+		"typescript": "^5.0.0"
+	}
+}

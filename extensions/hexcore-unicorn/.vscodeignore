@@ -1,0 +1,19 @@
+node_modules/**
+src/**
+test/**
+build/**
+binding.gyp
+package-lock.json
+.gitignore
+README.md
+**/*.map
+**/*.obj
+**/*.o
+**/*.lib
+**/*.a
+**/*.exp
+**/*.pdb
+
+# Prebuilds: force include (overrides .gitignore)
+!prebuilds/
+!prebuilds/**

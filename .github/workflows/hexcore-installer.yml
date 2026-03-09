@@ -1,0 +1,324 @@
+name: Scylla Build Installer (Transition)
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+env:
+  VSCODE_SKIP_NODE_VERSION_CHECK: 1
+  npm_config_maxsockets: 8
+  npm_config_loglevel: warn
+
+jobs:
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.21.1"
+
+      - name: Scylla Transition Preflight (Command/Build Coverage)
+        run: node scripts/verify-hexcore-preflight.cjs
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          npm install -g node-gyp
+          npm install -g gulp-cli
+          npm install -g tsx
+          npm install -g prebuild-install
+
+      - name: Install build gyp dependencies
+        run: npm --prefix build/npm/gyp ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies first
+        run: cd build && npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 0
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Install extensions shared dependencies
+        run: cd extensions && npm ci --ignore-scripts
+
+      - name: Install extension dependencies
+        run: |
+          cd extensions/configuration-editing && npm ci --ignore-scripts
+          cd ../css-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../debug-auto-launch && npm ci --ignore-scripts
+          cd ../debug-server-ready && npm ci --ignore-scripts
+          cd ../emmet && npm ci --ignore-scripts
+          cd ../extension-editing && npm ci --ignore-scripts
+          cd ../git && npm ci --ignore-scripts
+          cd ../git-base && npm ci --ignore-scripts
+          cd ../github && npm ci --ignore-scripts
+          cd ../github-authentication && npm ci --ignore-scripts
+          cd ../grunt && npm ci --ignore-scripts
+          cd ../gulp && npm ci --ignore-scripts
+          cd ../html-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../ipynb && npm ci --ignore-scripts
+          cd ../jake && npm ci --ignore-scripts
+          cd ../json-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../markdown-language-features && npm ci --ignore-scripts
+          cd ../markdown-math && npm ci --ignore-scripts
+          cd ../media-preview && npm ci --ignore-scripts
+          cd ../merge-conflict && npm ci --ignore-scripts
+          cd ../mermaid-chat-features && npm ci --ignore-scripts
+          cd ../microsoft-authentication && npm ci --ignore-scripts
+          cd ../npm && npm ci --ignore-scripts
+          cd ../php-language-features && npm ci --ignore-scripts
+          cd ../references-view && npm ci --ignore-scripts
+          cd ../search-result && npm ci --ignore-scripts
+          cd ../simple-browser && npm ci --ignore-scripts
+          cd ../terminal-suggest && npm ci --ignore-scripts
+          cd ../tunnel-forwarding && npm ci --ignore-scripts
+          cd ../typescript-language-features && npm ci --ignore-scripts
+
+      - name: Fetch HexCore Native Prebuilds
+        run: |
+          cd extensions/hexcore-capstone && node ../../scripts/hexcore-native-install.js
+          cd ../hexcore-unicorn && node ../../scripts/hexcore-native-install.js
+          cd ../hexcore-llvm-mc && node ../../scripts/hexcore-native-install.js
+          cd ../hexcore-better-sqlite3 && npm ci
+          cd ../hexcore-remill && node ../../scripts/hexcore-native-install.js
+          cd ../hexcore-rellic && node ../../scripts/hexcore-native-install.js
+
+      - name: Fetch HexCore Remill Semantics
+        run: |
+          cd extensions/hexcore-remill
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $asset = "hexcore-remill-v$version-semantics-win32-x64.tar.gz"
+          $url = "https://github.com/LXrdKnowkill/hexcore-remill/releases/download/$tag/$asset"
+          Write-Host "Downloading Remill semantics from $url ..."
+          Invoke-WebRequest -Uri $url -OutFile $asset
+          tar -xzf $asset
+          Remove-Item $asset
+          Write-Host "Semantics installed:"
+          Get-ChildItem deps/remill/share/semantics/ | Select-Object Name
+
+      - name: Compile HexCore Extensions
+        env:
+          npm_config_ignore_scripts: true
+        run: |
+          cd extensions/hexcore-hexviewer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-peanalyzer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-hashcalc && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-strings && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-entropy && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-base64 && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-filetype && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-common && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-ioc && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-yara && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-minidump && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-elfanalyzer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-report-composer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-disassembler && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-debugger && npm ci --ignore-scripts && npm run compile
+
+      - name: Build VS Code
+        run: npm run gulp vscode-win32-x64-min
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path "../VSCode-win32-x64/*" -DestinationPath "HexCore-win32-x64.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HexCore-win32-x64
+          path: HexCore-win32-x64.zip
+
+      - name: Upload to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HexCore-win32-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    name: Build Linux Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.21.1"
+
+      - name: HexCore Preflight (Command/Build Coverage)
+        run: node scripts/verify-hexcore-preflight.cjs
+
+      - name: Raise File Descriptor Limit
+        run: ulimit -n 65535 || true
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxkbfile-dev libsecret-1-dev libkrb5-dev
+
+      - name: Install build tools
+        run: |
+          npm install -g node-gyp
+          npm install -g gulp-cli
+          npm install -g tsx
+
+      - name: Install build gyp dependencies
+        run: npm --prefix build/npm/gyp ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies first
+        run: cd build && npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 0
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Install extensions shared dependencies
+        run: cd extensions && npm ci --ignore-scripts
+
+      - name: Install extension dependencies
+        run: |
+          cd extensions/configuration-editing && npm ci --ignore-scripts
+          cd ../css-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../debug-auto-launch && npm ci --ignore-scripts
+          cd ../debug-server-ready && npm ci --ignore-scripts
+          cd ../emmet && npm ci --ignore-scripts
+          cd ../extension-editing && npm ci --ignore-scripts
+          cd ../git && npm ci --ignore-scripts
+          cd ../git-base && npm ci --ignore-scripts
+          cd ../github && npm ci --ignore-scripts
+          cd ../github-authentication && npm ci --ignore-scripts
+          cd ../grunt && npm ci --ignore-scripts
+          cd ../gulp && npm ci --ignore-scripts
+          cd ../html-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../ipynb && npm ci --ignore-scripts
+          cd ../jake && npm ci --ignore-scripts
+          cd ../json-language-features && npm ci --ignore-scripts
+          cd ./server && npm ci --ignore-scripts
+          cd ../../markdown-language-features && npm ci --ignore-scripts
+          cd ../markdown-math && npm ci --ignore-scripts
+          cd ../media-preview && npm ci --ignore-scripts
+          cd ../merge-conflict && npm ci --ignore-scripts
+          cd ../mermaid-chat-features && npm ci --ignore-scripts
+          cd ../microsoft-authentication && npm ci --ignore-scripts
+          cd ../npm && npm ci --ignore-scripts
+          cd ../php-language-features && npm ci --ignore-scripts
+          cd ../references-view && npm ci --ignore-scripts
+          cd ../search-result && npm ci --ignore-scripts
+          cd ../simple-browser && npm ci --ignore-scripts
+          cd ../terminal-suggest && npm ci --ignore-scripts
+          cd ../tunnel-forwarding && npm ci --ignore-scripts
+          cd ../typescript-language-features && npm ci --ignore-scripts
+
+      - name: Fetch HexCore Native Dependencies
+        run: |
+          cd extensions/hexcore-better-sqlite3 && npm ci
+
+      - name: Fetch HexCore Remill Prebuilds (Linux)
+        continue-on-error: true
+        run: |
+          cd extensions/hexcore-remill && node ../../scripts/hexcore-native-install.js
+
+      - name: Fetch HexCore Rellic Prebuilds (Linux)
+        continue-on-error: true
+        run: |
+          cd extensions/hexcore-rellic && node ../../scripts/hexcore-native-install.js
+
+      - name: Fetch HexCore Remill Semantics (Linux)
+        continue-on-error: true
+        run: |
+          cd extensions/hexcore-remill
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}"
+          asset="hexcore-remill-v${version}-semantics-win32-x64.tar.gz"
+          url="https://github.com/LXrdKnowkill/hexcore-remill/releases/download/${tag}/${asset}"
+          echo "Downloading Remill semantics from ${url} ..."
+          curl -fsSL -o "${asset}" "${url}" || { echo "Semantics not available for Linux yet"; exit 0; }
+          tar -xzf "${asset}"
+          rm -f "${asset}"
+          echo "Semantics installed:"
+          ls deps/remill/share/semantics/
+
+      - name: Compile HexCore Extensions
+        run: |
+          cd extensions/hexcore-hexviewer && npm ci && npm run compile
+          cd ../hexcore-peanalyzer && npm ci && npm run compile
+          cd ../hexcore-hashcalc && npm ci && npm run compile
+          cd ../hexcore-strings && npm ci && npm run compile
+          cd ../hexcore-entropy && npm ci && npm run compile
+          cd ../hexcore-base64 && npm ci && npm run compile
+          cd ../hexcore-filetype && npm ci && npm run compile
+          cd ../hexcore-common && npm ci && npm run compile
+          cd ../hexcore-ioc && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-yara && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-minidump && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-elfanalyzer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-report-composer && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-disassembler && npm ci --ignore-scripts && npm run compile
+          cd ../hexcore-debugger && npm ci --ignore-scripts && npm run compile
+
+      - name: Build VS Code
+        run: npm run gulp vscode-linux-x64-min
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create TAR.GZ archive
+        run: |
+          tar -czvf HexCore-linux-x64.tar.gz -C .. VSCode-linux-x64
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HexCore-linux-x64
+          path: HexCore-linux-x64.tar.gz
+
+      - name: Upload to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HexCore-linux-x64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
