@@ -99,8 +99,9 @@ function hasSupportedVisualStudioVersion() {
 function installHeaders() {
 	const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 	const gypDir = path.join(import.meta.dirname, 'gyp');
+	const command = resolveNpmInstallCommand('ci');
 	try {
-		child_process.execSync(`${npm} ${process.env.npm_command || 'ci'} --ignore-scripts`, {
+		child_process.execSync(`${npm} ${command} --ignore-scripts`, {
 			env: process.env,
 			cwd: gypDir,
 			stdio: 'inherit',
@@ -174,4 +175,9 @@ function getHeaderInfo(rcFile: string): { disturl: string; target: string } | un
 	return disturl !== undefined && target !== undefined
 		? { disturl, target }
 		: undefined;
+}
+
+function resolveNpmInstallCommand(fallback: 'install' | 'ci'): 'install' | 'ci' {
+	const npmCommand = process.env.npm_command;
+	return npmCommand === 'install' || npmCommand === 'ci' ? npmCommand : fallback;
 }

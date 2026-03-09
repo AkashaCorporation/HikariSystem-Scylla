@@ -43,7 +43,7 @@ function npmInstall(dir: string, opts?: child_process.SpawnSyncOptions) {
 		shell: true
 	};
 
-	const command = process.env['npm_command'] || 'install';
+	const command = resolveNpmInstallCommand('install');
 
 	if (process.env['VSCODE_REMOTE_DEPENDENCIES_CONTAINER_NAME'] && /^(.build\/distro\/npm\/)?remote$/.test(dir)) {
 		const userinfo = os.userInfo();
@@ -184,3 +184,8 @@ for (const dir of dirs) {
 
 child_process.execSync('git config pull.rebase merges');
 child_process.execSync('git config blame.ignoreRevsFile .git-blame-ignore-revs');
+
+function resolveNpmInstallCommand(fallback: 'install' | 'ci'): 'install' | 'ci' {
+	const npmCommand = process.env['npm_command'];
+	return npmCommand === 'install' || npmCommand === 'ci' ? npmCommand : fallback;
+}
