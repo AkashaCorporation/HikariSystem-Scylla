@@ -127,7 +127,7 @@ jobs:
           Write-Host "Packed semantics: $asset"
 
       - name: Upload Prebuild Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.engine.name }}-prebuilds-win32
           path: |
@@ -136,7 +136,7 @@ jobs:
 
       - name: Upload Semantics Artifact
         if: ${{ matrix.engine.name == 'hexcore-remill' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.engine.name }}-semantics-win32
           path: engine/${{ steps.pack-semantics.outputs.asset }}
@@ -252,7 +252,7 @@ jobs:
           "asset=$asset" >> $env:GITHUB_OUTPUT
 
       - name: Upload Prebuild Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.engine.name }}-prebuilds-win32
           path: |
