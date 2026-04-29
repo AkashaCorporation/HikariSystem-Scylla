@@ -15,12 +15,7 @@ const path = require('path');
 // ---------------------------------------------------------------------------
 let nativeAddon;
 try {
-	const prebuildDir = './prebuilds/' + process.platform + '-' + process.arch + '/';
-	try {
-		nativeAddon = require(prebuildDir + 'node.napi.node');
-	} catch {
-		nativeAddon = require(prebuildDir + 'hexcore-better-sqlite3.node');
-	}
+	nativeAddon = require('./prebuilds/' + process.platform + '-' + process.arch + '/node.napi.node');
 } catch (e1) {
 	try {
 		nativeAddon = require('./build/Release/hexcore_sqlite3.node');
@@ -66,7 +61,6 @@ function resolveNativeBinaryPath() {
 	const fs = require('fs');
 	const candidates = [
 		path.join(__dirname, 'prebuilds', `${process.platform}-${process.arch}`, 'node.napi.node'),
-		path.join(__dirname, 'prebuilds', `${process.platform}-${process.arch}`, 'hexcore-better-sqlite3.node'),
 		path.join(__dirname, 'build', 'Release', 'hexcore_sqlite3.node'),
 		path.join(__dirname, 'build', 'Debug', 'hexcore_sqlite3.node'),
 	];

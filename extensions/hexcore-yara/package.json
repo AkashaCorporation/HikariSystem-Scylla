@@ -107,29 +107,8 @@
 				}
 			]
 		},
-		"viewsContainers": {
-			"activitybar": [
-				{
-					"id": "hexcore-yara",
-					"title": "YARA Scanner",
-					"icon": "$(shield)"
-				}
-			]
-		},
-		"views": {
-			"hexcore-yara": [
-				{
-					"type": "tree",
-					"id": "hexcore.yara.results",
-					"name": "Scan Results"
-				},
-				{
-					"type": "tree",
-					"id": "hexcore.yara.rules",
-					"name": "Rules"
-				}
-			]
-		},
+		"viewsContainers": {},
+		"views": {},
 		"configuration": {
 			"title": "HexCore YARA",
 			"properties": {

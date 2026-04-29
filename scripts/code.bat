@@ -10,10 +10,21 @@ if "%VSCODE_SKIP_PRELAUNCH%"=="" (
 	node build/lib/preLaunch.ts
 )
 
-for /f "tokens=2 delims=:," %%a in ('findstr /R /C:"\"nameShort\":.*" product.json') do set NAMESHORT=%%~a
-set NAMESHORT=%NAMESHORT: "=%
-set NAMESHORT=%NAMESHORT:"=%.exe
-set CODE=".build\electron\%NAMESHORT%"
+for /f "tokens=2 delims=:," %%a in ('findstr /R /C:"\"applicationName\":.*" product.json') do set APPNAME=%%~a
+set APPNAME=%APPNAME: "=%
+set APPNAME=%APPNAME:"=%
+set CODE=".build\electron\%APPNAME%.exe"
+
+if not exist %CODE% (
+	for /f "tokens=2 delims=:," %%a in ('findstr /R /C:"\"nameShort\":.*" product.json') do set NAMESHORT=%%~a
+	set NAMESHORT=%NAMESHORT: "=%
+	set NAMESHORT=%NAMESHORT:"=%.exe
+	set CODE=".build\electron\%NAMESHORT%"
+)
+
+if not exist %CODE% (
+	set CODE=".build\electron\HexCore.exe"
+)
 
 :: Manage built-in extensions
 if "%~1"=="--builtin" goto builtin

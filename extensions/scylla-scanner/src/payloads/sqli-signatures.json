@@ -1,0 +1,54 @@
+{
+  "mysql": [
+    "You have an error in your SQL syntax",
+    "Warning.*mysql_",
+    "MySqlException",
+    "mysql_fetch_",
+    "supplied argument is not a valid MySQL",
+    "Column count doesn't match",
+    "MySQL server version for the right syntax",
+    "Unknown column",
+    "com\\.mysql\\.jdbc",
+    "MySqlClient\\.",
+    "SQLSTATE\\[HY000\\]"
+  ],
+  "postgresql": [
+    "ERROR:\\s+syntax error at or near",
+    "pg_query\\(\\):",
+    "PG::SyntaxError",
+    "PostgreSQL.*ERROR",
+    "invalid input syntax for",
+    "org\\.postgresql\\.util\\.PSQLException",
+    "unterminated quoted string",
+    "SQLSTATE\\[42601\\]"
+  ],
+  "mssql": [
+    "Unclosed quotation mark",
+    "\\[Microsoft\\]\\[ODBC SQL Server",
+    "Microsoft OLE DB Provider for SQL Server",
+    "SqlException",
+    "Incorrect syntax near",
+    "com\\.microsoft\\.sqlserver\\.jdbc",
+    "Arithmetic overflow error",
+    "Conversion failed when converting",
+    "String or binary data would be truncated"
+  ],
+  "sqlite": [
+    "SQLite3::query\\(\\):",
+    "SQLITE_ERROR",
+    "unrecognized token:",
+    "SQLite\\/JDBCDriver",
+    "near \".*\": syntax error",
+    "SQLSTATE\\[HY000\\].*General error.*1",
+    "PDOException.*SQLSTATE"
+  ],
+  "oracle": [
+    "ORA-[0-9]{4,5}",
+    "Oracle error",
+    "quoted string not properly terminated",
+    "SQL command not properly ended",
+    "oracle\\.jdbc\\.driver",
+    "OracleException",
+    "missing expression"
+  ]
+}

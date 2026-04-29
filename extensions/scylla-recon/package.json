@@ -1,0 +1,177 @@
+{
+  "name": "scylla-recon",
+  "displayName": "Scylla Recon",
+  "description": "Native reconnaissance workflows: port scanning, web crawling, directory fuzzing, technology detection, and WAF fingerprinting.",
+  "version": "0.2.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "scylla",
+    "recon",
+    "portscan",
+    "crawler",
+    "dirfuzz",
+    "waf",
+    "pentest",
+    "headless"
+  ],
+  "activationEvents": [
+    "onCommand:scylla.recon.portscan",
+    "onCommand:scylla.recon.portscanHeadless",
+    "onCommand:scylla.recon.crawl",
+    "onCommand:scylla.recon.crawlHeadless",
+    "onCommand:scylla.recon.dirfuzz",
+    "onCommand:scylla.recon.dirfuzzHeadless",
+    "onCommand:scylla.recon.techdetect",
+    "onCommand:scylla.recon.techdetectHeadless",
+    "onCommand:scylla.recon.wafdetect",
+    "onCommand:scylla.recon.wafdetectHeadless",
+    "onView:scylla.recon.targets",
+    "onView:scylla.recon.openPorts",
+    "onView:scylla.recon.endpoints",
+    "onView:scylla.recon.technologies",
+    "onView:scylla.recon.waf"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "scylla.recon.portscan",
+        "title": "Scylla Recon: Port Scan",
+        "category": "Scylla Recon",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "scylla.recon.portscanHeadless",
+        "title": "Scylla Recon: Port Scan (Headless)",
+        "category": "Scylla Recon"
+      },
+      {
+        "command": "scylla.recon.crawl",
+        "title": "Scylla Recon: Crawl Website",
+        "category": "Scylla Recon",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "scylla.recon.crawlHeadless",
+        "title": "Scylla Recon: Crawl Website (Headless)",
+        "category": "Scylla Recon"
+      },
+      {
+        "command": "scylla.recon.dirfuzz",
+        "title": "Scylla Recon: Directory Fuzzing",
+        "category": "Scylla Recon",
+        "icon": "$(search-fuzzy)"
+      },
+      {
+        "command": "scylla.recon.dirfuzzHeadless",
+        "title": "Scylla Recon: Directory Fuzzing (Headless)",
+        "category": "Scylla Recon"
+      },
+      {
+        "command": "scylla.recon.techdetect",
+        "title": "Scylla Recon: Detect Technologies",
+        "category": "Scylla Recon",
+        "icon": "$(server-environment)"
+      },
+      {
+        "command": "scylla.recon.techdetectHeadless",
+        "title": "Scylla Recon: Detect Technologies (Headless)",
+        "category": "Scylla Recon"
+      },
+      {
+        "command": "scylla.recon.wafdetect",
+        "title": "Scylla Recon: WAF Detection",
+        "category": "Scylla Recon",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "scylla.recon.wafdetectHeadless",
+        "title": "Scylla Recon: WAF Detection (Headless)",
+        "category": "Scylla Recon"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "scylla-recon",
+          "title": "Scylla Recon",
+          "icon": "$(globe)"
+        }
+      ]
+    },
+    "views": {
+      "scylla-recon": [
+        {
+          "type": "tree",
+          "id": "scylla.recon.targets",
+          "name": "Targets"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.recon.openPorts",
+          "name": "Open Ports"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.recon.endpoints",
+          "name": "Discovered Endpoints"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.recon.technologies",
+          "name": "Technologies"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.recon.waf",
+          "name": "WAF / Firewall"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "scylla.recon.portscan",
+          "when": "view == scylla.recon.targets || view == scylla.recon.openPorts",
+          "group": "navigation"
+        },
+        {
+          "command": "scylla.recon.crawl",
+          "when": "view == scylla.recon.targets || view == scylla.recon.endpoints",
+          "group": "navigation"
+        },
+        {
+          "command": "scylla.recon.dirfuzz",
+          "when": "view == scylla.recon.endpoints",
+          "group": "navigation"
+        },
+        {
+          "command": "scylla.recon.techdetect",
+          "when": "view == scylla.recon.technologies",
+          "group": "navigation"
+        },
+        {
+          "command": "scylla.recon.wafdetect",
+          "when": "view == scylla.recon.waf",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@types/vscode": "^1.104.0",
+    "typescript": "^5.9.2"
+  }
+}

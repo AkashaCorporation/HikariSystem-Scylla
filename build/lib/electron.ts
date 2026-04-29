@@ -30,6 +30,22 @@ const root = path.dirname(path.dirname(import.meta.dirname));
 const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8'));
 const commit = getVersion(root);
 
+function getElectronPackageName(): string {
+	if (process.platform === 'win32') {
+		return product.applicationName || product.nameShort;
+	}
+
+	return product.nameShort;
+}
+
+function getElectronBuildStamp(version: string): string {
+	if (process.platform === 'win32') {
+		return `${version}:${getElectronPackageName()}`;
+	}
+
+	return version;
+}
+
 function createTemplate(input: string): (params: Record<string, string>) => string {
 	return (params: Record<string, string>) => {
 		return input.replace(/<%=\s*([^\s]+)\s*%>/g, (match, key) => {
@@ -216,7 +232,7 @@ function getElectron(arch: string): () => NodeJS.ReadWriteStream {
 		};
 
 		return vfs.src('package.json')
-			.pipe(json({ name: product.nameShort }))
+			.pipe(json({ name: getElectronPackageName() }))
 			.pipe(electron(electronOpts))
 			.pipe(filter(['**', '!**/app/package.json']))
 			.pipe(vfs.dest('.build/electron'));
@@ -227,11 +243,13 @@ async function main(arch: string = process.arch): Promise<void> {
 	const version = electronVersion;
 	const electronPath = path.join(root, '.build', 'electron');
 	const versionFile = path.join(electronPath, 'version');
-	const isUpToDate = fs.existsSync(versionFile) && fs.readFileSync(versionFile, 'utf8') === `${version}`;
+	const buildStamp = getElectronBuildStamp(version);
+	const isUpToDate = fs.existsSync(versionFile) && fs.readFileSync(versionFile, 'utf8') === buildStamp;
 
 	if (!isUpToDate) {
 		await util.rimraf(electronPath)();
 		await util.streamToPromise(getElectron(arch)());
+		await fs.promises.writeFile(versionFile, buildStamp);
 	}
 }
 

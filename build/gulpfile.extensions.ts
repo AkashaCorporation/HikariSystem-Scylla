@@ -89,6 +89,14 @@ const compilations = [
 	'extensions/hexcore-strings/tsconfig.json',
 	'extensions/hexcore-yara/tsconfig.json',
 
+	// Scylla extensions
+	'extensions/scylla-findings/tsconfig.json',
+	'extensions/scylla-http/tsconfig.json',
+	'extensions/scylla-jobs/tsconfig.json',
+	'extensions/scylla-recon/tsconfig.json',
+	'extensions/scylla-reporting/tsconfig.json',
+	'extensions/scylla-scanner/tsconfig.json',
+
 	'.vscode/extensions/vscode-selfhost-test-provider/tsconfig.json',
 	'.vscode/extensions/vscode-selfhost-import-aid/tsconfig.json',
 ];

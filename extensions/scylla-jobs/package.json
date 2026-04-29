@@ -1,0 +1,116 @@
+{
+  "name": "scylla-jobs",
+  "displayName": "Scylla Jobs",
+  "description": "Pipeline runner for automated pentesting workflows with .scylla_job.json files.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "scylla",
+    "pipeline",
+    "automation",
+    "jobs",
+    "headless",
+    "pentest"
+  ],
+  "activationEvents": [
+    "onCommand:scylla.jobs.runJob",
+    "onCommand:scylla.jobs.runJobHeadless",
+    "onCommand:scylla.jobs.validateJob",
+    "onCommand:scylla.jobs.validateJobHeadless",
+    "onCommand:scylla.jobs.listCapabilities",
+    "onCommand:scylla.jobs.listCapabilitiesHeadless",
+    "onCommand:scylla.jobs.createPresetJob",
+    "onCommand:scylla.jobs.doctor",
+    "workspaceContains:.scylla_job.json",
+    "onView:scylla.jobs.pipelines",
+    "onView:scylla.jobs.presets",
+    "onView:scylla.jobs.runHistory"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "scylla.jobs.runJob", "title": "Scylla Jobs: Run Pipeline", "category": "Scylla Jobs", "icon": "$(play)" },
+      { "command": "scylla.jobs.runJobHeadless", "title": "Scylla Jobs: Run Pipeline (Headless)", "category": "Scylla Jobs" },
+      { "command": "scylla.jobs.validateJob", "title": "Scylla Jobs: Validate Job File", "category": "Scylla Jobs", "icon": "$(check)" },
+      { "command": "scylla.jobs.validateJobHeadless", "title": "Scylla Jobs: Validate Job File (Headless)", "category": "Scylla Jobs" },
+      { "command": "scylla.jobs.listCapabilities", "title": "Scylla Jobs: List Pipeline Capabilities", "category": "Scylla Jobs" },
+      { "command": "scylla.jobs.listCapabilitiesHeadless", "title": "Scylla Jobs: List Capabilities (Headless)", "category": "Scylla Jobs" },
+      { "command": "scylla.jobs.createPresetJob", "title": "Scylla Jobs: Create from Preset", "category": "Scylla Jobs", "icon": "$(add)" },
+      { "command": "scylla.jobs.doctor", "title": "Scylla Jobs: Pipeline Doctor", "category": "Scylla Jobs", "icon": "$(heart)" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "scylla-pipeline",
+          "title": "Scylla Pipeline",
+          "icon": "$(play-circle)"
+        }
+      ]
+    },
+    "views": {
+      "scylla-pipeline": [
+        {
+          "type": "tree",
+          "id": "scylla.jobs.pipelines",
+          "name": "Pipelines"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.jobs.presets",
+          "name": "Presets"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.jobs.runHistory",
+          "name": "Run History"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "scylla.jobs.runJob",
+          "when": "view == scylla.jobs.pipelines",
+          "group": "navigation@1"
+        },
+        {
+          "command": "scylla.jobs.createPresetJob",
+          "when": "view == scylla.jobs.pipelines || view == scylla.jobs.presets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "scylla.jobs.validateJob",
+          "when": "view == scylla.jobs.pipelines",
+          "group": "navigation@3"
+        },
+        {
+          "command": "scylla.jobs.doctor",
+          "when": "view == scylla.jobs.pipelines",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": ["/.scylla_job.json", "**/.scylla_job.json"],
+        "url": "./schemas/scylla-job.schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@types/vscode": "^1.104.0",
+    "typescript": "^5.9.2"
+  }
+}

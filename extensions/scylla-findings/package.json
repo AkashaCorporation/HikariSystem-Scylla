@@ -1,0 +1,62 @@
+{
+	"name": "scylla-findings",
+	"displayName": "Scylla Findings",
+	"description": "File-backed findings workflows for HikariSystem Scylla.",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"Other",
+		"Testing"
+	],
+	"keywords": [
+		"findings",
+		"reporting",
+		"pentest",
+		"evidence",
+		"headless"
+	],
+	"activationEvents": [
+		"onCommand:scylla.findings.create",
+		"onCommand:scylla.findings.createHeadless",
+		"onCommand:scylla.findings.appendEvidenceHeadless",
+		"onCommand:scylla.findings.createFromHttpHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "scylla.findings.create",
+				"title": "Scylla Findings: Create Finding",
+				"category": "Scylla Findings"
+			},
+			{
+				"command": "scylla.findings.createHeadless",
+				"title": "Scylla Findings: Create Finding (Headless)",
+				"category": "Scylla Findings"
+			},
+			{
+				"command": "scylla.findings.appendEvidenceHeadless",
+				"title": "Scylla Findings: Append Evidence (Headless)",
+				"category": "Scylla Findings"
+			},
+			{
+				"command": "scylla.findings.createFromHttpHeadless",
+				"title": "Scylla Findings: Create Finding From HTTP (Headless)",
+				"category": "Scylla Findings"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}

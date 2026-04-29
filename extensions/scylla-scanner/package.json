@@ -1,0 +1,239 @@
+{
+  "name": "scylla-scanner",
+  "displayName": "Scylla Scanner",
+  "description": "Native vulnerability scanners: SQLi, XSS, LFI, SSTI, CORS, SSRF, JWT, GraphQL, DOM XSS, secrets detection, and more.",
+  "version": "0.2.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "scylla",
+    "scanner",
+    "sqli",
+    "xss",
+    "lfi",
+    "ssti",
+    "cors",
+    "ssrf",
+    "jwt",
+    "graphql",
+    "secrets",
+    "pentest",
+    "headless"
+  ],
+  "activationEvents": [
+    "onCommand:scylla.scanner.sqli",
+    "onCommand:scylla.scanner.sqliHeadless",
+    "onCommand:scylla.scanner.xss",
+    "onCommand:scylla.scanner.xssHeadless",
+    "onCommand:scylla.scanner.lfi",
+    "onCommand:scylla.scanner.lfiHeadless",
+    "onCommand:scylla.scanner.ssti",
+    "onCommand:scylla.scanner.sstiHeadless",
+    "onCommand:scylla.scanner.secrets",
+    "onCommand:scylla.scanner.secretsHeadless",
+    "onCommand:scylla.scanner.cors",
+    "onCommand:scylla.scanner.corsHeadless",
+    "onCommand:scylla.scanner.headers",
+    "onCommand:scylla.scanner.headersHeadless",
+    "onCommand:scylla.scanner.domxss",
+    "onCommand:scylla.scanner.domxssHeadless",
+    "onCommand:scylla.scanner.params",
+    "onCommand:scylla.scanner.paramsHeadless",
+    "onCommand:scylla.scanner.redirect",
+    "onCommand:scylla.scanner.redirectHeadless",
+    "onCommand:scylla.scanner.jwt",
+    "onCommand:scylla.scanner.jwtHeadless",
+    "onCommand:scylla.scanner.graphql",
+    "onCommand:scylla.scanner.graphqlHeadless",
+    "onCommand:scylla.scanner.ssrf",
+    "onCommand:scylla.scanner.ssrfHeadless",
+    "onCommand:scylla.scanner.sqliExtract",
+    "onCommand:scylla.scanner.sqliExtractHeadless",
+    "onCommand:scylla.scanner.xssExploit",
+    "onCommand:scylla.scanner.xssExploitHeadless",
+    "onCommand:scylla.scanner.lfiExploit",
+    "onCommand:scylla.scanner.lfiExploitHeadless",
+    "onCommand:scylla.scanner.auto",
+    "onCommand:scylla.scanner.autoHeadless",
+    "onCommand:scylla.scanner.idor",
+    "onCommand:scylla.scanner.idorHeadless",
+    "onCommand:scylla.scanner.privesc",
+    "onCommand:scylla.scanner.privescHeadless",
+    "onCommand:scylla.scanner.massAssign",
+    "onCommand:scylla.scanner.massAssignHeadless",
+    "onView:scylla.scanner.findings",
+    "onView:scylla.scanner.scanHistory"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "scylla.scanner.sqli", "title": "Scylla Scanner: SQL Injection", "category": "Scylla Scanner", "icon": "$(database)" },
+      { "command": "scylla.scanner.sqliHeadless", "title": "Scylla Scanner: SQL Injection (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.xss", "title": "Scylla Scanner: Cross-Site Scripting", "category": "Scylla Scanner", "icon": "$(code)" },
+      { "command": "scylla.scanner.xssHeadless", "title": "Scylla Scanner: Cross-Site Scripting (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.lfi", "title": "Scylla Scanner: Local File Inclusion", "category": "Scylla Scanner", "icon": "$(folder-opened)" },
+      { "command": "scylla.scanner.lfiHeadless", "title": "Scylla Scanner: Local File Inclusion (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.ssti", "title": "Scylla Scanner: Template Injection", "category": "Scylla Scanner", "icon": "$(bracket)" },
+      { "command": "scylla.scanner.sstiHeadless", "title": "Scylla Scanner: Template Injection (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.secrets", "title": "Scylla Scanner: Secrets Detection", "category": "Scylla Scanner", "icon": "$(key)" },
+      { "command": "scylla.scanner.secretsHeadless", "title": "Scylla Scanner: Secrets Detection (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.cors", "title": "Scylla Scanner: CORS Misconfiguration", "category": "Scylla Scanner", "icon": "$(link-external)" },
+      { "command": "scylla.scanner.corsHeadless", "title": "Scylla Scanner: CORS Misconfiguration (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.headers", "title": "Scylla Scanner: Security Headers", "category": "Scylla Scanner", "icon": "$(list-flat)" },
+      { "command": "scylla.scanner.headersHeadless", "title": "Scylla Scanner: Security Headers (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.domxss", "title": "Scylla Scanner: DOM XSS Analysis", "category": "Scylla Scanner", "icon": "$(file-code)" },
+      { "command": "scylla.scanner.domxssHeadless", "title": "Scylla Scanner: DOM XSS Analysis (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.params", "title": "Scylla Scanner: Hidden Parameters", "category": "Scylla Scanner", "icon": "$(symbol-parameter)" },
+      { "command": "scylla.scanner.paramsHeadless", "title": "Scylla Scanner: Hidden Parameters (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.redirect", "title": "Scylla Scanner: Open Redirect", "category": "Scylla Scanner", "icon": "$(arrow-right)" },
+      { "command": "scylla.scanner.redirectHeadless", "title": "Scylla Scanner: Open Redirect (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.jwt", "title": "Scylla Scanner: JWT Attack", "category": "Scylla Scanner", "icon": "$(lock)" },
+      { "command": "scylla.scanner.jwtHeadless", "title": "Scylla Scanner: JWT Attack (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.graphql", "title": "Scylla Scanner: GraphQL Security", "category": "Scylla Scanner", "icon": "$(graph)" },
+      { "command": "scylla.scanner.graphqlHeadless", "title": "Scylla Scanner: GraphQL Security (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.ssrf", "title": "Scylla Scanner: SSRF Detection", "category": "Scylla Scanner", "icon": "$(server)" },
+      { "command": "scylla.scanner.ssrfHeadless", "title": "Scylla Scanner: SSRF Detection (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.sqliExtract", "title": "Scylla Scanner: SQLi Data Extraction", "category": "Scylla Scanner", "icon": "$(database)" },
+      { "command": "scylla.scanner.sqliExtractHeadless", "title": "Scylla Scanner: SQLi Data Extraction (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.xssExploit", "title": "Scylla Scanner: XSS Exploit Generator", "category": "Scylla Scanner", "icon": "$(zap)" },
+      { "command": "scylla.scanner.xssExploitHeadless", "title": "Scylla Scanner: XSS Exploit Generator (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.lfiExploit", "title": "Scylla Scanner: LFI Exploitation", "category": "Scylla Scanner", "icon": "$(folder-opened)" },
+      { "command": "scylla.scanner.lfiExploitHeadless", "title": "Scylla Scanner: LFI Exploitation (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.auto", "title": "Scylla Scanner: Auto Scan (All)", "category": "Scylla Scanner", "icon": "$(play)" },
+      { "command": "scylla.scanner.autoHeadless", "title": "Scylla Scanner: Auto Scan (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.idor", "title": "Scylla Scanner: IDOR Detection", "category": "Scylla Scanner", "icon": "$(person)" },
+      { "command": "scylla.scanner.idorHeadless", "title": "Scylla Scanner: IDOR Detection (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.privesc", "title": "Scylla Scanner: Privilege Escalation", "category": "Scylla Scanner", "icon": "$(arrow-up)" },
+      { "command": "scylla.scanner.privescHeadless", "title": "Scylla Scanner: Privilege Escalation (Headless)", "category": "Scylla Scanner" },
+      { "command": "scylla.scanner.massAssign", "title": "Scylla Scanner: Mass Assignment", "category": "Scylla Scanner", "icon": "$(edit)" },
+      { "command": "scylla.scanner.massAssignHeadless", "title": "Scylla Scanner: Mass Assignment (Headless)", "category": "Scylla Scanner" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "scylla-scanner",
+          "title": "Scylla Scanner",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "scylla-scanner": [
+        {
+          "type": "tree",
+          "id": "scylla.scanner.findings",
+          "name": "Findings"
+        },
+        {
+          "type": "tree",
+          "id": "scylla.scanner.scanHistory",
+          "name": "Scan History"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "scylla.scanner.auto",
+          "when": "view == scylla.scanner.findings || view == scylla.scanner.scanHistory",
+          "group": "navigation@1"
+        },
+        {
+          "command": "scylla.scanner.sqli",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@1"
+        },
+        {
+          "command": "scylla.scanner.xss",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@2"
+        },
+        {
+          "command": "scylla.scanner.lfi",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@3"
+        },
+        {
+          "command": "scylla.scanner.ssti",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@4"
+        },
+        {
+          "command": "scylla.scanner.secrets",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@5"
+        },
+        {
+          "command": "scylla.scanner.cors",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@6"
+        },
+        {
+          "command": "scylla.scanner.headers",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@7"
+        },
+        {
+          "command": "scylla.scanner.domxss",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@8"
+        },
+        {
+          "command": "scylla.scanner.params",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@9"
+        },
+        {
+          "command": "scylla.scanner.redirect",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@10"
+        },
+        {
+          "command": "scylla.scanner.jwt",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@11"
+        },
+        {
+          "command": "scylla.scanner.graphql",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@12"
+        },
+        {
+          "command": "scylla.scanner.ssrf",
+          "when": "view == scylla.scanner.findings",
+          "group": "scanners@13"
+        },
+        {
+          "command": "scylla.scanner.sqliExtract",
+          "when": "view == scylla.scanner.findings",
+          "group": "exploit@1"
+        },
+        {
+          "command": "scylla.scanner.xssExploit",
+          "when": "view == scylla.scanner.findings",
+          "group": "exploit@2"
+        },
+        {
+          "command": "scylla.scanner.lfiExploit",
+          "when": "view == scylla.scanner.findings",
+          "group": "exploit@3"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@types/vscode": "^1.104.0",
+    "typescript": "^5.9.2"
+  }
+}

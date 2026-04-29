@@ -1,0 +1,20 @@
+
+> scylla-auth@2.0.0 compile
+> tsc -p ./
+
+../../node_modules/@types/cacheable-request/index.d.ts(26,42): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(77,51): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(81,69): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(84,71): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(89,51): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(95,51): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(104,51): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(108,70): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(112,73): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(115,76): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/cacheable-request/index.d.ts(118,60): error TS2709: Cannot use namespace 'ResponseLike' as a type.
+../../node_modules/@types/vscode-notebook-renderer/index.d.ts(121,55): error TS2552: Cannot find name 'HTMLElement'. Did you mean 'HTMLLIElement'?
+../../node_modules/@types/wicg-file-system-access/index.d.ts(9,85): error TS2304: Cannot find name 'PermissionState'.
+../../node_modules/@types/wicg-file-system-access/index.d.ts(10,87): error TS2304: Cannot find name 'PermissionState'.
+../../node_modules/@types/wicg-file-system-access/index.d.ts(76,54): error TS2304: Cannot find name 'PermissionDescriptor'.
+../../node_modules/@types/wicg-file-system-access/index.d.ts(124,76): error TS2304: Cannot find name 'FileSystemWritableFileStream'.

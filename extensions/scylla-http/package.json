@@ -1,0 +1,86 @@
+{
+	"name": "scylla-http",
+	"displayName": "Scylla HTTP",
+	"description": "HTTP request execution and file-backed request artifacts for HikariSystem Scylla.",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"Other",
+		"Testing"
+	],
+	"keywords": [
+		"http",
+		"api",
+		"pentest",
+		"request",
+		"headless"
+	],
+	"activationEvents": [
+		"onCommand:scylla.http.createRequest",
+		"onCommand:scylla.http.send",
+		"onCommand:scylla.http.sendHeadless",
+		"onCommand:scylla.http.saveRequestHeadless",
+		"onCommand:scylla.http.replayHeadless",
+		"onCommand:scylla.http.setHostsHeadless",
+		"onCommand:scylla.http.clearHostsHeadless",
+		"onCommand:scylla.http.getHostsHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "scylla.http.createRequest",
+				"title": "Scylla HTTP: Create Request",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.send",
+				"title": "Scylla HTTP: Send Request",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.sendHeadless",
+				"title": "Scylla HTTP: Send Request (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.saveRequestHeadless",
+				"title": "Scylla HTTP: Save Request (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.replayHeadless",
+				"title": "Scylla HTTP: Replay Request (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.setHostsHeadless",
+				"title": "Scylla HTTP: Set Custom Hosts (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.clearHostsHeadless",
+				"title": "Scylla HTTP: Clear Custom Hosts (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.getHostsHeadless",
+				"title": "Scylla HTTP: Get Custom Hosts (Headless)",
+				"category": "Scylla HTTP"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}

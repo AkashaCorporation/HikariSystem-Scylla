@@ -65,8 +65,3 @@ extensions/hexcore-llvm-mc/prebuilds/
 
 # Wiki (managed separately by GitHub)
 wiki/
-.agent/
-.claude/
-.kiro/
-.config/
-extensions/hexcore-remill/remill-deps-win32-x64.zip

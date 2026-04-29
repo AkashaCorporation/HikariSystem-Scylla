@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scylla Job File",
+  "description": "Defines a Scylla pipeline job for automated pentesting workflows.",
+  "type": "object",
+  "required": ["target", "outDir", "steps"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "Target URL or hostname."
+    },
+    "outDir": {
+      "type": "string",
+      "description": "Output directory for pipeline artifacts (relative to workspace root)."
+    },
+    "quiet": {
+      "type": "boolean",
+      "default": true,
+      "description": "Suppress VS Code notifications during execution."
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "User-defined template variables (accessible as ${variableName} in step args)."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["cmd"],
+        "properties": {
+          "cmd": {
+            "type": "string",
+            "description": "VS Code command ID to execute."
+          },
+          "args": {
+            "type": "object",
+            "description": "Command arguments object."
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string" },
+              "format": { "type": "string", "enum": ["json", "md"] }
+            }
+          },
+          "continueOnError": {
+            "type": "boolean",
+            "default": false,
+            "description": "Continue pipeline even if this step fails."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Timeout for this step in milliseconds."
+          },
+          "expectOutput": {
+            "type": "boolean",
+            "description": "Whether to validate that output was produced."
+          },
+          "retryCount": {
+            "type": "number",
+            "default": 0,
+            "description": "Number of retry attempts."
+          },
+          "retryDelayMs": {
+            "type": "number",
+            "default": 1000,
+            "description": "Delay between retries."
+          }
+        }
+      }
+    }
+  }
+}

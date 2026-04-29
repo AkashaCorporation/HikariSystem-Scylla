@@ -1,0 +1,63 @@
+{
+	"name": "scylla-auth",
+	"displayName": "Scylla Auth Engine",
+	"description": "Authenticated scanning: session manager, cookie jar, CSRF auto-refresh, multi-profile auth for IDOR/PrivEsc testing.",
+	"version": "2.0.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"keywords": [
+		"scylla",
+		"auth",
+		"session",
+		"cookie",
+		"csrf",
+		"login",
+		"oauth",
+		"pentest",
+		"headless"
+	],
+	"activationEvents": [
+		"onCommand:scylla.auth.login",
+		"onCommand:scylla.auth.loginHeadless",
+		"onCommand:scylla.auth.oauth",
+		"onCommand:scylla.auth.oauthHeadless",
+		"onCommand:scylla.auth.sessionCheck",
+		"onCommand:scylla.auth.sessionCheckHeadless",
+		"onCommand:scylla.auth.sessionRefresh",
+		"onCommand:scylla.auth.sessionRefreshHeadless",
+		"onCommand:scylla.auth.getHeadersHeadless",
+		"onCommand:scylla.auth.listProfilesHeadless",
+		"onCommand:scylla.auth.clearSessionsHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{ "command": "scylla.auth.login", "title": "Scylla Auth: Login", "category": "Scylla Auth", "icon": "$(sign-in)" },
+			{ "command": "scylla.auth.loginHeadless", "title": "Scylla Auth: Login (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.oauth", "title": "Scylla Auth: OAuth2 Login", "category": "Scylla Auth", "icon": "$(key)" },
+			{ "command": "scylla.auth.oauthHeadless", "title": "Scylla Auth: OAuth2 Login (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.sessionCheck", "title": "Scylla Auth: Check Session", "category": "Scylla Auth", "icon": "$(pass)" },
+			{ "command": "scylla.auth.sessionCheckHeadless", "title": "Scylla Auth: Check Session (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.sessionRefresh", "title": "Scylla Auth: Refresh Session", "category": "Scylla Auth", "icon": "$(sync)" },
+			{ "command": "scylla.auth.sessionRefreshHeadless", "title": "Scylla Auth: Refresh Session (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.getHeadersHeadless", "title": "Scylla Auth: Get Auth Headers (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.listProfilesHeadless", "title": "Scylla Auth: List Profiles (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.clearSessionsHeadless", "title": "Scylla Auth: Clear Sessions (Headless)", "category": "Scylla Auth" }
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}
