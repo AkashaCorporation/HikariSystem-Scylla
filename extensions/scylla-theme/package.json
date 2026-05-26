@@ -1,0 +1,44 @@
+{
+	"name": "scylla-theme",
+	"displayName": "Scylla IDE Themes",
+	"description": "Custom premium dark themes for the Scylla Pentesting IDE with custom CSS injection.",
+	"version": "2.0.0",
+	"publisher": "scylla",
+	"license": "GPL-3.0",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"enabledApiProposals": [
+		"css"
+	],
+	"categories": [
+		"Themes"
+	],
+	"contributes": {
+		"themes": [
+			{
+				"id": "scylla-dark",
+				"label": "Scylla Dark",
+				"uiTheme": "vs-dark",
+				"path": "./themes/scylla-dark.json"
+			},
+			{
+				"id": "scylla-hydra",
+				"label": "Scylla Hydra Crimson",
+				"uiTheme": "vs-dark",
+				"path": "./themes/scylla-hydra.json"
+			},
+			{
+				"id": "scylla-hydra-v2",
+				"label": "Scylla Hydra Crimson v2",
+				"uiTheme": "vs-dark",
+				"path": "./themes/scylla-hydra-v2.json"
+			}
+		],
+		"css": [
+			{
+				"path": "./themes/styles.css"
+			}
+		]
+	}
+}

@@ -1,0 +1,37 @@
+{
+	"name": "scylla-export",
+	"displayName": "Scylla Export",
+	"description": "Export findings to JSON, CSV, and SARIF 2.1 formats for integration with external tools.",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": ["Other"],
+	"keywords": ["scylla", "export", "sarif", "csv", "pentest", "headless"],
+	"activationEvents": [
+		"onCommand:scylla.export.findings",
+		"onCommand:scylla.export.jsonHeadless",
+		"onCommand:scylla.export.csvHeadless",
+		"onCommand:scylla.export.sarifHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{ "command": "scylla.export.findings", "title": "Scylla Export: Export Findings", "category": "Scylla Export", "icon": "$(export)" },
+			{ "command": "scylla.export.jsonHeadless", "title": "Scylla Export: JSON (Headless)", "category": "Scylla Export" },
+			{ "command": "scylla.export.csvHeadless", "title": "Scylla Export: CSV (Headless)", "category": "Scylla Export" },
+			{ "command": "scylla.export.sarifHeadless", "title": "Scylla Export: SARIF 2.1 (Headless)", "category": "Scylla Export" }
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}

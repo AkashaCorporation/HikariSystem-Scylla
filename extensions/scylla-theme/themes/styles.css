@@ -1,0 +1,572 @@
+/*---------------------------------------------------------------------------------------------
+ *  Scylla IDE Premium Theme Stylesheet v2
+ *  Advanced glassmorphism, layered shadows, micro-animations, and cyber-recon aesthetics.
+ *
+ *  Design Principles:
+ *  - Shadows replace borders for depth (no hard lines)
+ *  - Subtle blur and saturation on floating elements
+ *  - Smooth 200-300ms transitions on interactive elements
+ *  - Accent-aware glow that respects the active theme color
+ *--------------------------------------------------------------------------------------------*/
+
+/* ===========================================================================
+   0. CSS Custom Properties (pulled from theme at runtime)
+   =========================================================================== */
+:root {
+	--scylla-accent: var(--vscode-activityBar-activeBorder, #c01840);
+	--scylla-accent-dim: var(--vscode-activityBarBadge-background, #c01840);
+	--scylla-bg-deep: var(--vscode-editor-background, #0a0708);
+	--scylla-bg-surface: var(--vscode-sideBar-background, #0e0b0c);
+	--scylla-bg-elevated: var(--vscode-editorWidget-background, #100c0e);
+	--scylla-fg: var(--vscode-foreground, #d4cfd1);
+	--scylla-border: var(--vscode-widget-border, #ffffff0a);
+}
+
+/* ===========================================================================
+   1. Layout Depth — Replace borders with layered shadows
+   =========================================================================== */
+
+/* Activity Bar — deepest layer, subtle inner shadow */
+.monaco-workbench .part.activitybar {
+	box-shadow: 2px 0 12px rgba(0, 0, 0, 0.45);
+	z-index: 50;
+	position: relative;
+	border-right: none !important;
+	border-left: none !important;
+}
+
+/* Sidebar */
+.monaco-workbench .part.sidebar {
+	box-shadow: 3px 0 16px rgba(0, 0, 0, 0.35);
+	z-index: 40;
+	position: relative;
+	border-right: none !important;
+	border-left: none !important;
+}
+
+/* Auxiliary Bar (secondary sidebar) */
+.monaco-workbench .part.auxiliarybar {
+	box-shadow: -3px 0 16px rgba(0, 0, 0, 0.35);
+	z-index: 40;
+	position: relative;
+	border-right: none !important;
+	border-left: none !important;
+}
+
+/* Title Bar — top-level, firm shadow downward */
+.monaco-workbench .part.titlebar {
+	box-shadow: 0 3px 14px rgba(0, 0, 0, 0.4);
+	z-index: 60;
+	position: relative;
+	border-bottom: none !important;
+	overflow: visible !important;
+}
+
+.monaco-workbench .part.titlebar .titlebar-container,
+.monaco-workbench .part.titlebar .titlebar-center,
+.monaco-workbench .part.titlebar .titlebar-center .window-title,
+.monaco-workbench .part.titlebar .command-center,
+.monaco-workbench .part.titlebar .command-center .monaco-action-bar,
+.monaco-workbench .part.titlebar .command-center .actions-container {
+	overflow: visible !important;
+}
+
+/* Status Bar — bottom edge, shadow upward */
+.monaco-workbench .part.statusbar {
+	box-shadow: 0 -3px 14px rgba(0, 0, 0, 0.35);
+	z-index: 55;
+	position: relative;
+	border-top: none !important;
+}
+
+/* Panel (terminal, output, etc.) */
+.monaco-workbench .part.panel {
+	box-shadow: 0 -3px 12px rgba(0, 0, 0, 0.3);
+	z-index: 35;
+	position: relative;
+	border-top: none !important;
+}
+
+/* Editor area — no additional border clutter */
+.monaco-workbench .part.editor > .content .editor-group-container {
+	border: none !important;
+}
+
+/* Section headers — no bottom border, rely on spacing */
+.monaco-workbench .pane-composite-part:not(.empty) > .header {
+	border-bottom: none !important;
+}
+
+/* ===========================================================================
+   2. Tabs — Premium styling with glow and transitions
+   =========================================================================== */
+
+/* Active tab — elevated with accent glow */
+.monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab.active {
+	box-shadow: 0 -2px 12px color-mix(in srgb, var(--scylla-accent) 20%, transparent);
+	border-radius: 6px 6px 0 0;
+	position: relative;
+	z-index: 5;
+	transition: box-shadow 0.25s ease;
+}
+
+/* Inactive tab hover — subtle lift */
+.monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container > .tab:hover:not(.active) {
+	background-color: rgba(255, 255, 255, 0.04) !important;
+	transition: background-color 0.2s ease, box-shadow 0.2s ease;
+	box-shadow: 0 -1px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Glow line under active tab */
+.monaco-workbench .tabs-container > .tab.active::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 8px;
+	right: 8px;
+	height: 2px;
+	background: var(--scylla-accent);
+	box-shadow: 0 0 10px var(--scylla-accent), 0 0 20px color-mix(in srgb, var(--scylla-accent) 40%, transparent);
+	border-radius: 0 0 4px 4px;
+	opacity: 0.9;
+}
+
+/* ===========================================================================
+   3. Glassmorphism — Frosted glass on floating widgets
+   =========================================================================== */
+
+/* Command Palette (Quick Input) */
+.monaco-workbench .quick-input-widget {
+	background: rgba(12, 9, 10, 0.78) !important;
+	backdrop-filter: blur(40px) saturate(170%) !important;
+	-webkit-backdrop-filter: blur(40px) saturate(170%) !important;
+	border: 1px solid color-mix(in srgb, var(--scylla-accent) 18%, transparent) !important;
+	border-radius: 14px !important;
+	box-shadow:
+		0 20px 60px rgba(0, 0, 0, 0.65),
+		0 0 1px rgba(255, 255, 255, 0.06),
+		inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+	overflow: hidden !important;
+	padding: 4px !important;
+}
+
+.monaco-workbench .quick-input-widget .monaco-list-rows {
+	background-color: transparent !important;
+}
+
+.monaco-workbench .quick-input-widget .quick-input-header,
+.monaco-workbench .quick-input-widget .quick-input-list,
+.monaco-workbench .quick-input-widget .quick-input-titlebar,
+.monaco-workbench .quick-input-widget .quick-input-title,
+.monaco-workbench .quick-input-widget .quick-input-description,
+.monaco-workbench .quick-input-widget .quick-input-filter,
+.monaco-workbench .quick-input-widget .quick-input-action,
+.monaco-workbench .quick-input-widget .quick-input-message,
+.monaco-workbench .quick-input-widget .monaco-list,
+.monaco-workbench .quick-input-widget .monaco-list-row {
+	border: none !important;
+	border-color: transparent !important;
+	outline: none !important;
+}
+
+.monaco-workbench .quick-input-widget .monaco-inputbox {
+	background: rgba(0, 0, 0, 0.35) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 8px !important;
+	box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.02) !important;
+}
+
+.monaco-workbench .quick-input-widget .quick-input-filter .monaco-inputbox {
+	background: rgba(0, 0, 0, 0.4) !important;
+	border-radius: 8px !important;
+}
+
+.monaco-workbench .quick-input-widget .monaco-list-row {
+	border-radius: 6px !important;
+	margin: 1px 4px !important;
+	transition: background-color 0.15s ease;
+}
+
+.monaco-workbench .quick-input-widget .monaco-list.list_id_6:not(.drop-target):not(.dragging) .monaco-list-row:hover:not(.selected):not(.focused) {
+	background-color: color-mix(in srgb, var(--vscode-list-hoverBackground) 50%, transparent);
+}
+
+/* Context Menus */
+.monaco-workbench .monaco-menu .monaco-action-bar.vertical,
+.monaco-workbench .context-view .monaco-menu {
+	background: rgba(12, 9, 10, 0.85) !important;
+	backdrop-filter: blur(30px) saturate(160%) !important;
+	-webkit-backdrop-filter: blur(30px) saturate(160%) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 12px !important;
+	box-shadow:
+		0 16px 48px rgba(0, 0, 0, 0.55),
+		0 0 1px rgba(255, 255, 255, 0.05),
+		inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+	overflow: hidden !important;
+	padding: 4px !important;
+}
+
+.monaco-workbench .monaco-menu .monaco-action-bar.vertical .action-item {
+	border-radius: 6px !important;
+	margin: 1px 0 !important;
+	transition: background-color 0.12s ease;
+}
+
+/* Suggest Widget (Autocomplete) */
+.monaco-workbench .monaco-editor .suggest-widget {
+	background: rgba(12, 9, 10, 0.88) !important;
+	backdrop-filter: blur(30px) saturate(150%) !important;
+	-webkit-backdrop-filter: blur(30px) saturate(150%) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 12px !important;
+	box-shadow:
+		0 14px 42px rgba(0, 0, 0, 0.5),
+		inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+	overflow: hidden !important;
+}
+
+.monaco-workbench .monaco-editor .suggest-widget .monaco-list-row {
+	border-radius: 5px !important;
+	margin: 1px 4px !important;
+}
+
+/* Parameter Hints */
+.monaco-workbench .monaco-editor .parameter-hints-widget {
+	background: rgba(12, 9, 10, 0.88) !important;
+	backdrop-filter: blur(30px) saturate(150%) !important;
+	-webkit-backdrop-filter: blur(30px) saturate(150%) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 10px !important;
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Find Widget */
+.monaco-workbench .monaco-editor .find-widget {
+	background: rgba(12, 9, 10, 0.92) !important;
+	backdrop-filter: blur(20px) !important;
+	-webkit-backdrop-filter: blur(20px) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-top: none !important;
+	border-radius: 0 0 10px 10px !important;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Peek View */
+.monaco-workbench .monaco-editor .peekview-widget {
+	border-radius: 10px !important;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.04) !important;
+	overflow: hidden !important;
+	border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.monaco-workbench .monaco-editor .peekview-widget .head,
+.monaco-workbench .monaco-editor .peekview-widget .body {
+	background: transparent !important;
+}
+
+/* Dialog boxes */
+.monaco-workbench .monaco-dialog-box {
+	border-radius: 14px !important;
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	overflow: hidden !important;
+}
+
+/* Action Widget (lightbulb quick fixes) */
+.monaco-workbench .action-widget {
+	background: rgba(12, 9, 10, 0.82) !important;
+	backdrop-filter: blur(25px) saturate(150%) !important;
+	-webkit-backdrop-filter: blur(25px) saturate(150%) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 10px !important;
+	box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5) !important;
+}
+
+.monaco-workbench .action-widget .action-widget-action-bar {
+	background: transparent;
+}
+
+/* Notifications */
+.monaco-workbench .notifications-toasts {
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.monaco-workbench .notification-toast {
+	box-shadow: none !important;
+	border: none !important;
+	border-radius: 10px !important;
+	overflow: hidden !important;
+}
+
+.monaco-workbench .notifications-center {
+	border: none !important;
+	border-radius: 12px !important;
+	overflow: hidden !important;
+	box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* Inline Chat */
+.monaco-workbench .monaco-editor .inline-chat {
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 12px !important;
+}
+
+/* ===========================================================================
+   4. Command Center — Premium pill shape
+   =========================================================================== */
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-center > .window-title > .command-center .action-item.command-center-center {
+	background: rgba(255, 255, 255, 0.03) !important;
+	border: 1px solid rgba(255, 255, 255, 0.05) !important;
+	border-radius: 8px !important;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15) !important;
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	transition: all 0.2s ease;
+	overflow: visible !important;
+}
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-center > .window-title > .command-center .action-item.command-center-center:hover {
+	background: rgba(255, 255, 255, 0.06) !important;
+	border-color: color-mix(in srgb, var(--scylla-accent) 30%, transparent) !important;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 12px color-mix(in srgb, var(--scylla-accent) 12%, transparent) !important;
+}
+
+/* ===========================================================================
+   5. Breadcrumbs — Frosted bar
+   =========================================================================== */
+.monaco-workbench .part.editor > .content .editor-group-container > .title .breadcrumbs-control {
+	background: rgba(14, 11, 12, 0.85) !important;
+	backdrop-filter: blur(20px) saturate(140%) !important;
+	-webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* ===========================================================================
+   6. Minimap — Transparent overlay
+   =========================================================================== */
+.monaco-workbench .monaco-editor .minimap {
+	background: rgba(14, 11, 12, 0.6) !important;
+	backdrop-filter: blur(12px) !important;
+	-webkit-backdrop-filter: blur(12px) !important;
+	border-radius: 6px 0 0 6px;
+}
+
+.monaco-workbench .monaco-editor .minimap canvas {
+	opacity: 0.7;
+}
+
+.monaco-workbench .monaco-editor .minimap-shadow-visible {
+	box-shadow: -4px 0 10px rgba(0, 0, 0, 0.2);
+}
+
+/* ===========================================================================
+   7. Sticky Scroll — Frosted header
+   =========================================================================== */
+.monaco-workbench .monaco-editor .sticky-widget {
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2) !important;
+	border: none !important;
+	background: rgba(14, 11, 12, 0.8) !important;
+	backdrop-filter: blur(25px) saturate(150%) !important;
+	-webkit-backdrop-filter: blur(25px) saturate(150%) !important;
+	border-radius: 0 0 8px 8px !important;
+}
+
+.monaco-workbench .monaco-editor .sticky-widget *,
+.monaco-workbench .monaco-editor .sticky-widget > *,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-widget-line-numbers,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-widget-lines-scrollable,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-widget-lines,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-line-number,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-line-content,
+.monaco-workbench .monaco-editor .sticky-widget .sticky-line-content:hover {
+	background-color: transparent !important;
+	background: transparent !important;
+}
+
+/* ===========================================================================
+   8. Buttons — Rounded, weighted, glowing on hover
+   =========================================================================== */
+.monaco-workbench .monaco-button {
+	border-radius: 6px !important;
+	transition: all 0.2s ease;
+	font-weight: 600 !important;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+.monaco-workbench .monaco-button:hover {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 16px color-mix(in srgb, var(--scylla-accent) 25%, transparent) !important;
+	transform: translateY(-0.5px);
+}
+
+.monaco-workbench .monaco-button:active {
+	box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+	transform: translateY(0);
+}
+
+/* ===========================================================================
+   9. Input Boxes — Inset shadow for depth
+   =========================================================================== */
+.monaco-workbench .monaco-inputbox,
+.monaco-workbench .suggest-input-container {
+	box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.25);
+	border: 1px solid rgba(255, 255, 255, 0.04) !important;
+	border-radius: 6px !important;
+}
+
+.monaco-inputbox .monaco-action-bar .action-item .codicon,
+.monaco-workbench .search-container .input-box,
+.monaco-custom-toggle {
+	color: var(--vscode-icon-foreground) !important;
+}
+
+/* ===========================================================================
+   10. Dropdowns
+   =========================================================================== */
+.monaco-workbench .monaco-dropdown .dropdown-menu {
+	box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45) !important;
+	border: 1px solid rgba(255, 255, 255, 0.06) !important;
+	border-radius: 10px !important;
+}
+
+/* ===========================================================================
+   11. Debug Toolbar — Floating pill
+   =========================================================================== */
+.monaco-workbench .debug-toolbar {
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+	border: none !important;
+	border-radius: 10px !important;
+	backdrop-filter: blur(20px) !important;
+	-webkit-backdrop-filter: blur(20px) !important;
+}
+
+/* ===========================================================================
+   12. Terminal — Subtle inset depth
+   =========================================================================== */
+.monaco-workbench .pane-body.integrated-terminal {
+	box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* ===========================================================================
+   13. SCM — Rounded provider cards
+   =========================================================================== */
+.monaco-workbench .scm-view .scm-provider {
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+	border-radius: 8px;
+}
+
+/* ===========================================================================
+   14. Extensions list — Card-like items
+   =========================================================================== */
+.monaco-workbench .extensions-list .extension-list-item {
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+	border: none;
+	border-radius: 8px;
+	margin: 2px 0;
+	transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.monaco-workbench .extensions-list .extension-list-item:hover {
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* ===========================================================================
+   15. Welcome Page — Premium tiles
+   =========================================================================== */
+.monaco-workbench .part.editor .welcomePageContainer .tile {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+	border: 1px solid rgba(255, 255, 255, 0.04) !important;
+	border-radius: 10px;
+	transition: all 0.2s ease;
+}
+
+.monaco-workbench .part.editor .welcomePageContainer .tile:hover {
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), 0 0 20px color-mix(in srgb, var(--scylla-accent) 10%, transparent);
+	border-color: color-mix(in srgb, var(--scylla-accent) 20%, transparent) !important;
+	transform: translateY(-1px);
+}
+
+/* ===========================================================================
+   16. Notebook Cells
+   =========================================================================== */
+.monaco-workbench .notebookOverlay .monaco-list .cell-focus-indicator {
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+	border-radius: 8px;
+}
+
+.monaco-workbench .notebookOverlay .monaco-list .monaco-list-row.focused .cell-focus-indicator {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* ===========================================================================
+   17. Settings
+   =========================================================================== */
+.monaco-workbench .settings-editor .settings-toc-container {
+	box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ===========================================================================
+   18. Smooth Transitions — Global micro-animations
+   =========================================================================== */
+.monaco-workbench .monaco-list-row {
+	transition: background-color 0.12s ease-in-out;
+}
+
+.monaco-workbench .part.sidebar .monaco-list-row:hover,
+.monaco-workbench .part.auxiliarybar .monaco-list-row:hover {
+	transition: background-color 0.12s ease;
+}
+
+/* Chat input container */
+.monaco-workbench .interactive-session .chat-input-container {
+	box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.15);
+	border-radius: 8px;
+	border: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.monaco-workbench .interactive-session .interactive-input-part .chat-editor-container .interactive-input-editor .monaco-editor,
+.monaco-workbench .interactive-session .interactive-input-part .chat-editor-container .interactive-input-editor .monaco-editor .monaco-editor-background {
+	background-color: var(--vscode-panel-background, var(--vscode-sideBar-background)) !important;
+}
+
+/* Chat editing session */
+.monaco-workbench .interactive-session .chat-editing-session .chat-editing-session-container {
+	background-color: transparent !important;
+	border-radius: 6px 6px 0 0;
+}
+
+/* ===========================================================================
+   19. Sash Separators — Eradicate white vertical lines between panels
+   =========================================================================== */
+.monaco-sash,
+.monaco-sash.vertical,
+.monaco-sash.horizontal,
+.monaco-sash.vertical::before,
+.monaco-sash.vertical::after,
+.monaco-sash.horizontal::before,
+.monaco-sash.horizontal::after {
+	background: transparent !important;
+	background-color: transparent !important;
+	border: none !important;
+	box-shadow: none !important;
+}
+
+.monaco-workbench .part.activitybar {
+	border-right: none !important;
+}
+
+.monaco-workbench .part.sidebar {
+	border-left: none !important;
+	border-right: none !important;
+}
+
+/* Activitybar bordered border hide */
+.monaco-workbench .activitybar.bordered::before,
+.monaco-workbench .activitybar.left.bordered::before,
+.monaco-workbench .activitybar.right.bordered::before,
+.monaco-workbench .part.activitybar::before {
+	display: none !important;
+	border: none !important;
+	width: 0 !important;
+}

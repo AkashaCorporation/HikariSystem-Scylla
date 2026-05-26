@@ -70,6 +70,8 @@ export const dirs = [
 	'extensions/vscode-colorize-tests',
 	'extensions/vscode-colorize-perf-tests',
 	'extensions/vscode-test-resolver',
+	'extensions/scylla-wordlists',
+	'extensions/scylla-export',
 	'remote',
 	'remote/web',
 	'test/automation',

@@ -1,0 +1,37 @@
+{
+	"name": "scylla-wordlists",
+	"displayName": "Scylla Wordlists",
+	"description": "Built-in wordlist manager for directory fuzzing, parameter discovery, and credential testing.",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": ["Other"],
+	"keywords": ["scylla", "wordlists", "fuzzing", "pentest", "headless"],
+	"activationEvents": [
+		"onCommand:scylla.wordlists.list",
+		"onCommand:scylla.wordlists.preview",
+		"onCommand:scylla.wordlists.getPathHeadless",
+		"onCommand:scylla.wordlists.listHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{ "command": "scylla.wordlists.list", "title": "Scylla Wordlists: Browse Wordlists", "category": "Scylla Wordlists", "icon": "$(list-unordered)" },
+			{ "command": "scylla.wordlists.preview", "title": "Scylla Wordlists: Preview Wordlist", "category": "Scylla Wordlists", "icon": "$(eye)" },
+			{ "command": "scylla.wordlists.getPathHeadless", "title": "Scylla Wordlists: Get Path (Headless)", "category": "Scylla Wordlists" },
+			{ "command": "scylla.wordlists.listHeadless", "title": "Scylla Wordlists: List Available (Headless)", "category": "Scylla Wordlists" }
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}
