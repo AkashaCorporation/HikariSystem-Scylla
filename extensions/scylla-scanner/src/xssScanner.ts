@@ -1,25 +1,15 @@
-/*---------------------------------------------------------------------------------------------
- *  Copyright (c) HikariSystem. All rights reserved.
- *  Licensed under the GPLv3 License. See License.txt in the project root for license information.
- *--------------------------------------------------------------------------------------------*/
-
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { ParameterTarget, VulnFinding, XssScanResult } from './types';
+import { detectDalfoxContext, generateDalfoxPayloads, verifyDalfoxExploit, DalfoxContext } from './xssHeuristics';
+import { RateLimiter } from './xsstrike/rateLimiter';
+import { WafFuzzer } from './xsstrike/wafFuzzer';
+import { JsContexter } from './xsstrike/jsContexter';
+import { DynamicGenerator } from './xsstrike/dynamicGenerator';
 
 const DEFAULT_DELAY_MS = 100;
 const DEFAULT_TIMEOUT_MS = 15_000;
-
-interface XssPayloads {
-	html: string[];
-	attribute: string[];
-	javascript: string[];
-	url: string[];
-	polyglot: string[];
-}
-
-type XssContext = 'html' | 'attribute' | 'javascript' | 'url' | 'unknown';
 
 export async function scanXss(
 	targetUrl: string,
@@ -30,12 +20,17 @@ export async function scanXss(
 		timeoutMs?: number;
 		headers?: Record<string, string>;
 		cookie?: string;
+		rateLimitRetryBaseMs?: number;
+		maxRetries?: number;
 	} = {}
 ): Promise<XssScanResult> {
 	const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const rateLimitRetryBaseMs = options.rateLimitRetryBaseMs ?? 500;
+	const maxRetries = options.maxRetries ?? 3;
 
-	const payloads = loadJson<XssPayloads>('xss-payloads.json');
+	const rateLimiter = new RateLimiter(rateLimitRetryBaseMs, maxRetries);
+
 	const findings: VulnFinding[] = [];
 	const start = Date.now();
 	let parametersScanned = 0;
@@ -46,27 +41,32 @@ export async function scanXss(
 
 		// Step 1: Send a unique canary to check for reflection
 		const canary = `scylla_xss_${Math.random().toString(36).slice(2, 10)}`;
-		const canaryResponse = await sendWithPayload(targetUrl, param, canary, timeoutMs, options.headers, options.cookie);
+		const canaryResponse = await rateLimiter.executeWithBackoff(
+			() => sendWithPayload(targetUrl, param, canary, timeoutMs, options.headers, options.cookie),
+			(res) => res !== null && res.statusCode < 400
+		);
 
 		if (!canaryResponse || !canaryResponse.bodyText.includes(canary)) {
 			if (delayMs > 0) { await sleep(delayMs); }
 			continue; // Not reflected, skip
 		}
 
-		// Step 2: Determine the reflection context
-		const context = detectContext(canaryResponse.bodyText, canary);
+		// Step 2: Determine the reflection context using Dalfox heuristics
+		const context = detectDalfoxContext(canaryResponse.bodyText, canary);
 
-		// Step 3: Send context-appropriate payloads
-		const contextPayloads = getPayloadsForContext(payloads, context, options.contexts);
+		// Step 3: Phase 1 - Dalfox Static Polyglots & Templates
+		const contextPayloads = generateDalfoxPayloads(context, canary);
+		let found = false;
 
-		for (const payloadTemplate of contextPayloads) {
-			const payload = payloadTemplate.replace(/\{canary\}/g, canary);
-
-			const response = await sendWithPayload(targetUrl, param, payload, timeoutMs, options.headers, options.cookie);
+		for (const payload of contextPayloads) {
+			const response = await rateLimiter.executeWithBackoff(
+				() => sendWithPayload(targetUrl, param, payload, timeoutMs, options.headers, options.cookie),
+				(res) => res !== null && res.statusCode < 400
+			);
+			
 			if (!response) { continue; }
 
-			// Check if the payload reflects unescaped
-			if (isPayloadReflectedUnescaped(response.bodyText, payload, canary)) {
+			if (verifyDalfoxExploit(response.bodyText, payload, canary, context)) {
 				findings.push({
 					type: 'xss',
 					severity: 'high',
@@ -74,17 +74,61 @@ export async function scanXss(
 					url: targetUrl,
 					parameter: param.name,
 					payload,
-					evidence: `Payload reflected unescaped in ${context} context. Status: ${response.statusCode}`,
-					confidence: 0.90,
-					details: `Reflected Cross-Site Scripting detected in parameter "${param.name}" (${param.location}). Context: ${context}. The payload was reflected in the response body without proper encoding or sanitization.`,
+					evidence: `Dalfox Heuristic Verification Passed in ${context} context. Status: ${response.statusCode}`,
+					confidence: 0.95,
+					details: `Reflected Cross-Site Scripting detected in parameter "${param.name}" (${param.location}). Context: ${context}. The payload structurally bypassed filtering and proved execution capability using Dalfox DOM/AST simulation rules.`,
 				});
-				break; // One confirmed finding per param
+				found = true;
+				break; // Confirmed finding
 			}
-
 			if (delayMs > 0) { await sleep(delayMs); }
 		}
 
-		if (delayMs > 0) { await sleep(delayMs); }
+		if (found) continue; // Move to next parameter
+
+		// Step 4: Phase 2 - XSStrike Dynamic Fuzzing & WAF Evasion
+		// If Dalfox templates failed, the WAF is likely filtering specific characters.
+		const fuzzer = new WafFuzzer(rateLimiter, targetUrl, timeoutMs, options.headers, options.cookie);
+		const filterScores = await fuzzer.detectFilters(param);
+		
+		const generator = new DynamicGenerator(filterScores);
+		let jsBreaker = '';
+		
+		if (context === 'script') {
+			// Find the unbalanced JS syntax before the canary
+			const idx = canaryResponse.bodyText.indexOf(canary);
+			const jsBefore = canaryResponse.bodyText.substring(Math.max(0, idx - 500), idx);
+			jsBreaker = JsContexter.generateBreaker(jsBefore);
+		}
+
+		// Convert Dalfox context to XSStrike generator context
+		const genContext = (context === 'script' || context === 'html' || context === 'attribute') ? context : 'html';
+		const dynamicPayloads = generator.generate(genContext, jsBreaker, canary);
+
+		for (const payload of dynamicPayloads) {
+			const response = await rateLimiter.executeWithBackoff(
+				() => sendWithPayload(targetUrl, param, payload, timeoutMs, options.headers, options.cookie),
+				(res) => res !== null && res.statusCode < 400
+			);
+			
+			if (!response) { continue; }
+
+			if (verifyDalfoxExploit(response.bodyText, payload, canary, context)) {
+				findings.push({
+					type: 'xss',
+					severity: 'critical', // Dynamic evasions get critical severity
+					title: `WAF Bypassed Reflected XSS (${context} context)`,
+					url: targetUrl,
+					parameter: param.name,
+					payload,
+					evidence: `XSStrike Dynamic Generator Bypassed WAF. Status: ${response.statusCode}`,
+					confidence: 0.99,
+					details: `Advanced WAF Bypass detected in parameter "${param.name}". XSStrike fuzzing determined the allowed character set and successfully built a context-aware mutated payload (Breaker: ${jsBreaker || 'None'}).`,
+				});
+				break; 
+			}
+			if (delayMs > 0) { await sleep(delayMs); }
+		}
 	}
 
 	return {
@@ -94,109 +138,6 @@ export async function scanXss(
 		findings,
 		elapsedMs: Date.now() - start,
 	};
-}
-
-function detectContext(body: string, canary: string): XssContext {
-	const idx = body.indexOf(canary);
-	if (idx === -1) { return 'unknown'; }
-
-	// Get surrounding context (500 chars before)
-	const before = body.substring(Math.max(0, idx - 500), idx);
-
-	// Inside a <script> tag?
-	const lastScriptOpen = before.lastIndexOf('<script');
-	const lastScriptClose = before.lastIndexOf('</script');
-	if (lastScriptOpen > lastScriptClose) {
-		return 'javascript';
-	}
-
-	// Inside an HTML attribute?
-	const lastQuote = Math.max(before.lastIndexOf('"'), before.lastIndexOf("'"));
-	const lastEquals = before.lastIndexOf('=');
-	const lastGt = before.lastIndexOf('>');
-	if (lastEquals > lastGt && lastQuote > lastEquals) {
-		return 'attribute';
-	}
-
-	// Inside href/src attribute? (URL context)
-	const attrMatch = before.match(/(?:href|src|action|data)\s*=\s*["']?[^"'>]*$/i);
-	if (attrMatch) {
-		return 'url';
-	}
-
-	return 'html';
-}
-
-function getPayloadsForContext(
-	payloads: XssPayloads,
-	detectedContext: XssContext,
-	allowedContexts?: Array<'html' | 'attribute' | 'javascript' | 'url'>
-): string[] {
-	const result: string[] = [];
-
-	// Always try polyglot first
-	result.push(...payloads.polyglot);
-
-	// Context-specific payloads
-	if (detectedContext === 'html' && (!allowedContexts || allowedContexts.includes('html'))) {
-		result.push(...payloads.html);
-	}
-	if (detectedContext === 'attribute' && (!allowedContexts || allowedContexts.includes('attribute'))) {
-		result.push(...payloads.attribute);
-	}
-	if (detectedContext === 'javascript' && (!allowedContexts || allowedContexts.includes('javascript'))) {
-		result.push(...payloads.javascript);
-	}
-	if (detectedContext === 'url' && (!allowedContexts || allowedContexts.includes('url'))) {
-		result.push(...payloads.url);
-	}
-
-	// If unknown context, try everything
-	if (detectedContext === 'unknown') {
-		result.push(...payloads.html, ...payloads.attribute, ...payloads.javascript);
-	}
-
-	return result;
-}
-
-function isPayloadReflectedUnescaped(body: string, payload: string, canary: string): boolean {
-	// Check for key dangerous patterns that indicate unescaped reflection
-	const dangerousPatterns = [
-		`<script>alert('${canary}')</script>`,
-		`<img src=x onerror=alert('${canary}')>`,
-		`<svg onload=alert('${canary}')>`,
-		`onerror=alert('${canary}')`,
-		`onload=alert('${canary}')`,
-		`onmouseover="alert('${canary}')"`,
-		`onfocus="alert('${canary}')"`,
-		`alert('${canary}')`,
-		`<svg/onload=alert('${canary}')`,
-	];
-
-	for (const pattern of dangerousPatterns) {
-		if (body.includes(pattern)) {
-			return true;
-		}
-	}
-
-	// Check if the raw payload appears (not HTML-encoded)
-	if (body.includes(payload)) {
-		// Verify it's not just the canary that's reflected but actual dangerous chars
-		if (payload.includes('<') && body.includes(payload) && !body.includes(escapeHtml(payload))) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-function escapeHtml(text: string): string {
-	return text
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#039;');
 }
 
 async function sendWithPayload(

@@ -139,7 +139,12 @@ End-to-end pipeline: full recon, all scanners against crawl results, and a final
     },
     {
       "cmd": "scylla.scanner.xssHeadless",
-      "args": { "crawlResultFile": "${outDir}/04-scylla-recon-crawlheadless.json", "createFindings": true },
+      "args": { 
+        "crawlResultFile": "${outDir}/04-scylla-recon-crawlheadless.json", 
+        "createFindings": true,
+        "rateLimitRetryBaseMs": 1000,
+        "maxRetries": 5
+      },
       "continueOnError": true,
       "timeoutMs": 300000
     },
@@ -210,6 +215,7 @@ End-to-end pipeline: full recon, all scanners against crawl results, and a final
 - The crawl step is step 4 (1-based), so `crawlResultFile` references `04-scylla-recon-crawlheadless.json`.
 - All scanner steps use `continueOnError: true` so one scanner failure does not abort the rest.
 - Scanners that do not use parameters (CORS, headers, DOM XSS, params) receive `url` from the job-level `target`.
+- The XSS scanner (`scylla.scanner.xssHeadless`) is powered by the **Dalfox Heuristics Engine**, ensuring robust AST/DOM evasion and polyglot context detection.
 - The final report aggregates all findings from all scanners.
 
 ---

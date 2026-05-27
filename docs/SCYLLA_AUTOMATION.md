@@ -199,7 +199,7 @@ ${outDir}/03-scylla-recon-crawlheadless.json
 | Command | Timeout | Description |
 |---------|---------|-------------|
 | `scylla.scanner.sqliHeadless` | 300s | SQL Injection detection (error-based + time-blind). |
-| `scylla.scanner.xssHeadless` | 300s | Cross-Site Scripting detection (reflected + context-aware). |
+| `scylla.scanner.xssHeadless` | 300s | Cross-Site Scripting detection powered by **Dalfox Heuristics Engine (Pure TS)**. Context-aware generation, DOM-simulated AST checks, polyglots, and WAF bypasses. |
 | `scylla.scanner.lfiHeadless` | 300s | Local File Inclusion (path traversal + PHP wrappers). |
 | `scylla.scanner.sstiHeadless` | 300s | Server-Side Template Injection (8 template engines). |
 | `scylla.scanner.secretsHeadless` | 120s | Secrets and credential detection (36 patterns). |
@@ -243,6 +243,8 @@ All scanner headless commands share these options:
 |-----------|------|-------------|
 | `parameters` | `ParameterTarget[]` | Direct parameter list. |
 | `contexts` | `Array<"html" \| "attribute" \| "javascript" \| "url">` | XSS context types to test. |
+| `rateLimitRetryBaseMs` | `number` | Base delay for the XSStrike exponential back-off rate limiter (default: 500). |
+| `maxRetries` | `number` | Max retries for the XSStrike WAF evasion engine when receiving HTTP 403 or timeouts (default: 3). |
 
 #### `scylla.scanner.lfiHeadless` -- Additional Options
 

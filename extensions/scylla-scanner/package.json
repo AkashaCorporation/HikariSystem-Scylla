@@ -2,7 +2,7 @@
   "name": "scylla-scanner",
   "displayName": "Scylla Scanner",
   "description": "Native vulnerability scanners: SQLi, XSS, LFI, SSTI, CORS, SSRF, JWT, GraphQL, DOM XSS, secrets detection, and more.",
-  "version": "0.2.0",
+  "version": "2.1.0",
   "private": true,
   "license": "GPL-3.0-only",
   "engines": {
