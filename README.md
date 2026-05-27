@@ -50,7 +50,7 @@ Version 2.0 **"Hydra"** is designed specifically to target complex access contro
 
 ### 🛡️ Vulnerability Scanning Suite (`scylla-scanner`)
 - **SQL Injection (SQLi)** — In-depth parameter payload testing for error-based, boolean-based, and time-based SQL injection.
-- **Cross-Site Scripting (XSS)** — Advanced injection testing with context-aware payloads, DOM-based analysis, and active exploit generation.
+- **Cross-Site Scripting (XSS)** — Advanced Dalfox & XSStrike hybrid engine. Employs DOM/AST validation, fuzzy WAF evasion scoring, intelligent payload mutation, and rate-limiting.
 - **Local File Inclusion (LFI)** — Directory traversal payload testing with LFI exploitation utilities (reading log files, wrapping, base64 filters).
 - **Template Injection (SSTI)** — Detecting server-side template engine execution (Jinja2, Twig, Freemarker, Velocity) with payload testing.
 - **CORS Misconfiguration** — Active probing for trust-origin wildcard bypasses and credential leakage patterns.
@@ -88,7 +88,7 @@ HikariSystem Scylla is organized in a highly modular extension structure inside 
 | Extension | Version | Description |
 |-----------|---------|-------------|
 | **Scylla Recon** | 0.2.0 | Native reconnaissance workflows: port scanning, web crawling, directory fuzzing, technology detection, and WAF fingerprinting. |
-| **Scylla Scanner** | 0.2.0 | Native vulnerability scanners: SQLi, XSS, LFI, SSTI, CORS, SSRF, JWT, GraphQL, DOM XSS, secrets detection, and more. |
+| **Scylla Scanner** | 2.1.0 | Native vulnerability scanners: SQLi, XSS (Hybrid Engine), LFI, SSTI, CORS, SSRF, JWT, GraphQL, DOM XSS, secrets detection, and more. |
 | **Scylla HTTP** | 0.1.0 | HTTP request execution, replay, repeater, and file-backed request artifacts (.http) for the Scylla workbench. |
 | **Scylla Wordlists** | 0.1.0 | Built-in wordlist manager for directory fuzzing, parameter discovery, and credential testing. |
 | **Scylla Export** | 0.1.0 | Export findings to JSON, CSV, and SARIF 2.1 formats for integration with external tools. |

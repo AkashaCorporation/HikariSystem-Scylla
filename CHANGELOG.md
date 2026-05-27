@@ -5,6 +5,19 @@ All notable changes to the HikariSystem Scylla Studio project will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-27 - "Hybrid XSS Engine: Dalfox + XSStrike"
+
+> **Major Release: Hybrid XSS Engine** — A complete overhaul of the XSS scanning capabilities. The `scylla.scanner.xssHeadless` command is now powered by a two-phase hybrid engine combining Dalfox's speed and AST validation with XSStrike's dynamic payload fuzzing and WAF evasion. This eliminates false positives and generates bespoke payloads to bypass Web Application Firewalls natively in TypeScript without any C++ (N-API) dependencies.
+
+### Added
+
+- **Phase 1: Dalfox Heuristics (`xssHeuristics.ts`)**: Intelligent context detection (HTML, attributes, scripts, dom-events) mapping with static polyglot templates and deep structural DOM verification to ensure execution before flagging.
+- **Phase 2: XSStrike WAF Fuzzer (`wafFuzzer.ts`)**: Employs fuzzy string matching (Levenshtein-style) via targeted boundary canaries to score the exact characters a WAF permits, HTML-encodes, or outright deletes.
+- **XSStrike JS Contexter (`jsContexter.ts`)**: Dynamically balances open JavaScript syntax blocks (unmatched quotes, brackets, arrays) discovered during reflection, automatically generating an exact reverse string (e.g., `]})`) to prevent JS execution errors.
+- **XSStrike Dynamic Generator (`dynamicGenerator.ts`)**: Constructs XSS payloads on the fly via mutation and permutation (e.g., `<sVg/onLOad=`), completely bypassing signature-based WAFs by using only the characters proven safe by the WafFuzzer.
+- **Exponential Back-off Rate Limiter (`rateLimiter.ts`)**: Introduces adaptive rate limiting that automatically intercepts HTTP 403 (Forbidden) and 429 (Too Many Requests) responses from defensive systems, throttling the injection speed to outwait the firewall.
+- **Configuration Support**: Added `rateLimitRetryBaseMs` and `maxRetries` arguments to `scylla.scanner.xssHeadless` inside `.scylla_job.json`.
+
 ## [2.0.1] - 2026-05-27 - "Windows Build & Bootstrap Hotfix"
 
 > **Hotfix Release: Build & Bootstrap Stability** — A critical set of updates to resolve compilation and bootstrap failures during clean installations on Windows environments. This ensures the Scylla Studio IDE can be built and launched by any developer, offline or online, without N-API or compiler toolchain crashes.
