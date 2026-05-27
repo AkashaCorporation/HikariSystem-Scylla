@@ -5,6 +5,17 @@ All notable changes to the HikariSystem Scylla Studio project will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-05-27 - "Windows Build & Bootstrap Hotfix"
+
+> **Hotfix Release: Build & Bootstrap Stability** — A critical set of updates to resolve compilation and bootstrap failures during clean installations on Windows environments. This ensures the Scylla Studio IDE can be built and launched by any developer, offline or online, without N-API or compiler toolchain crashes.
+
+### Fixed
+
+- **Phantom N-API Dependencies in `dirs.ts` & `gulpfile.extensions.ts`**: Eliminated reference errors during clean builds by removing obsolete HexCore extensions (disassembler, debugger, etc.) and adding new Scylla extensions (`scylla-auth`, `scylla-export`, `scylla-wordlists`). Implemented dynamic `fs.existsSync` filtering to automatically ignore any non-existent directories on disk during bootstrap and gulp compilation tasks.
+- **Windows npm Command Spawning (`postinstall.ts`)**: Patched the command argument parser using a regular expression `command.match(/(?:[^\s"]+|"[^"]*")+/g)` instead of raw space splitting. This preserves quoted arguments containing spaces and prevents bootstrap failures on Windows. Also sanitized the `npm_command` value to avoid launching interactive stuck shells (such as `npm exec`).
+- **Node-GYP Compilation Timeout (`preinstall.ts`)**: Increased the preinstall node-gyp execution timeout from 60 seconds to 5 minutes (`300_000` ms) to allow slower MSVC compiler runs on Windows to complete gracefully without aborting.
+- **Fallback for Native SQLite Binaries (`hexcore-native-install.js`)**: Patched the installation script for `better-sqlite3` to exit with status code 0 if a precompiled `.node` binary already exists in `prebuilds/win32-x64/`, avoiding compiler errors on environments without local C++ compiler headers.
+
 ## [2.0.0] - 2026-04-10 - "Hydra Phase 1"
 
 > **Major Release: Scylla Core Transition** — The project pivots from reverse-engineering (HexCore) to an offensive-security, business-logic-focused API penetration testing IDE. This release replaces static-cookie scans with dynamic, multi-profile authentication tracking and introduces 3 advanced access control scanners.

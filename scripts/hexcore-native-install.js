@@ -112,7 +112,12 @@ if (!prebuildResult.ok) {
 	const buildResult = run(nodeGypCmd, ['rebuild']);
 	if (!buildResult.ok) {
 		console.error(`[hexcore-native-install] node-gyp rebuild failed: ${buildResult.error}`);
-		process.exit(1);
+		if (findBinaryDir()) {
+			console.warn(`[hexcore-native-install] Found pre-compiled binary on disk (${findBinaryDir()}). Proceeding gracefully.`);
+			process.exit(0);
+		} else {
+			process.exit(1);
+		}
 	}
 }
 

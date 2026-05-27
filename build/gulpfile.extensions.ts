@@ -27,10 +27,8 @@ const root = path.dirname(import.meta.dirname);
 const commit = getVersion(root);
 
 // To save 250ms for each gulp startup, we are caching the result here
-// const compilations = glob.sync('**/tsconfig.json', {
-// 	cwd: extensionsPath,
-// 	ignore: ['**/out/**', '**/node_modules/**']
-// });
+import { existsSync } from 'fs';
+
 const compilations = [
 	'extensions/configuration-editing/tsconfig.json',
 	'extensions/css-language-features/client/tsconfig.json',
@@ -72,34 +70,29 @@ const compilations = [
 	'extensions/vscode-colorize-perf-tests/tsconfig.json',
 	'extensions/vscode-test-resolver/tsconfig.json',
 
-	// HexCore extensions
+	// HexCore utility extensions
 	'extensions/hexcore-base64/tsconfig.json',
 	'extensions/hexcore-common/tsconfig.json',
-	'extensions/hexcore-debugger/tsconfig.json',
-	'extensions/hexcore-disassembler/tsconfig.json',
-	'extensions/hexcore-elfanalyzer/tsconfig.json',
-	'extensions/hexcore-entropy/tsconfig.json',
 	'extensions/hexcore-filetype/tsconfig.json',
 	'extensions/hexcore-hashcalc/tsconfig.json',
-	'extensions/hexcore-hexviewer/tsconfig.json',
 	'extensions/hexcore-ioc/tsconfig.json',
-	'extensions/hexcore-minidump/tsconfig.json',
-	'extensions/hexcore-peanalyzer/tsconfig.json',
-	'extensions/hexcore-report-composer/tsconfig.json',
 	'extensions/hexcore-strings/tsconfig.json',
 	'extensions/hexcore-yara/tsconfig.json',
 
 	// Scylla extensions
+	'extensions/scylla-auth/tsconfig.json',
+	'extensions/scylla-export/tsconfig.json',
 	'extensions/scylla-findings/tsconfig.json',
 	'extensions/scylla-http/tsconfig.json',
 	'extensions/scylla-jobs/tsconfig.json',
 	'extensions/scylla-recon/tsconfig.json',
 	'extensions/scylla-reporting/tsconfig.json',
 	'extensions/scylla-scanner/tsconfig.json',
+	'extensions/scylla-wordlists/tsconfig.json',
 
 	'.vscode/extensions/vscode-selfhost-test-provider/tsconfig.json',
 	'.vscode/extensions/vscode-selfhost-import-aid/tsconfig.json',
-];
+].filter(file => existsSync(path.join(root, file)));
 
 const getBaseUrl = (out: string) => `https://main.vscode-cdn.net/sourcemaps/${commit}/${out}`;
 

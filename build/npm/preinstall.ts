@@ -104,7 +104,7 @@ function installHeaders() {
 			env: process.env,
 			cwd: gypDir,
 			stdio: 'inherit',
-			timeout: 60_000
+			timeout: 300_000
 		});
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);

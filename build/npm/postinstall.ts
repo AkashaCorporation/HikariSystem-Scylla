@@ -43,7 +43,10 @@ function npmInstall(dir: string, opts?: child_process.SpawnSyncOptions) {
 		shell: true
 	};
 
-	const command = process.env['npm_command'] || 'install';
+	let command = process.env['npm_command'] || 'install';
+	if (command !== 'install' && command !== 'ci') {
+		command = 'install';
+	}
 
 	if (process.env['VSCODE_REMOTE_DEPENDENCIES_CONTAINER_NAME'] && /^(.build\/distro\/npm\/)?remote$/.test(dir)) {
 		const userinfo = os.userInfo();
@@ -66,7 +69,8 @@ function npmInstall(dir: string, opts?: child_process.SpawnSyncOptions) {
 		run('sudo', ['chown', '-R', `${userinfo.uid}:${userinfo.gid}`, `${path.resolve(root, dir)}`], opts);
 	} else {
 		log(dir, 'Installing dependencies...');
-		run(npm, command.split(' '), opts);
+		const args = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+		run(npm, args, opts);
 	}
 	removeParcelWatcherPrebuild(dir);
 }
