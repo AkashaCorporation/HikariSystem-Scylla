@@ -27,7 +27,10 @@
 		"onCommand:scylla.http.replayHeadless",
 		"onCommand:scylla.http.setHostsHeadless",
 		"onCommand:scylla.http.clearHostsHeadless",
-		"onCommand:scylla.http.getHostsHeadless"
+		"onCommand:scylla.http.getHostsHeadless",
+		"onCommand:scylla.http.setScopeHeadless",
+		"onCommand:scylla.http.clearScopeHeadless",
+		"onCommand:scylla.http.getScopeHeadless"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
@@ -71,8 +74,58 @@
 				"command": "scylla.http.getHostsHeadless",
 				"title": "Scylla HTTP: Get Custom Hosts (Headless)",
 				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.setScopeHeadless",
+				"title": "Scylla HTTP: Set Engagement Scope (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.clearScopeHeadless",
+				"title": "Scylla HTTP: Clear Engagement Scope (Headless)",
+				"category": "Scylla HTTP"
+			},
+			{
+				"command": "scylla.http.getScopeHeadless",
+				"title": "Scylla HTTP: Get Engagement Scope (Headless)",
+				"category": "Scylla HTTP"
 			}
-		]
+		],
+		"configuration": {
+			"title": "Scylla Governor",
+			"properties": {
+				"scylla.governor.scope": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"markdownDescription": "In-scope host allowlist for ALL Scylla traffic (the engagement boundary). Supports exact hosts (`target.com`) and wildcards (`*.htb`). When EMPTY, Scylla does not restrict egress by settings (back-compat), but a running job still constrains traffic to its declared target. When non-empty, any request to a host NOT on this list is blocked. Keeping this accurate prevents out-of-scope hits (a bounty-scope violation) and stops scanners from wandering off-scope via redirects."
+				},
+				"scylla.governor.enforceScope": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "When `true` (default), the `#scylla.governor.scope#` allowlist is ENFORCED and out-of-scope requests are blocked. Set to `false` to make scope advisory (no blocking) without clearing your scope list."
+				},
+				"scylla.governor.rateLimitPerSec": {
+					"type": "number",
+					"default": 0,
+					"minimum": 0,
+					"markdownDescription": "Maximum requests per second PER HOST (token bucket). `0` = unlimited (default). Set this when testing a live target to avoid rate-limit bans or accidental denial of service."
+				},
+				"scylla.governor.maxConcurrency": {
+					"type": "number",
+					"default": 0,
+					"minimum": 0,
+					"markdownDescription": "Maximum number of in-flight HTTP requests across all Scylla scanners. `0` = unlimited (default). A small value (e.g. `8`) keeps aggressive multi-scanner runs polite."
+				},
+				"scylla.governor.consent": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Authorization attestation that gates AUTOMATIC job runs. When `false` (default), dropping or opening a `.scylla_job.json` does NOT silently launch scanners -- you get a notification with a 'Run scan now' action instead. Set to `true` ONLY when you are authorized to test the targets in your job files and want auto-run on file create / change / startup."
+				}
+			}
+		}
 	},
 	"scripts": {
 		"compile": "tsc -p ./",

@@ -23,6 +23,11 @@
       "additionalProperties": { "type": "string" },
       "description": "User-defined template variables (accessible as ${variableName} in step args)."
     },
+    "scope": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional in-scope host patterns for this engagement, beyond `target` (supports *.wildcards). Published to the governor so the egress layer constrains all traffic to the authorized scope."
+    },
     "steps": {
       "type": "array",
       "minItems": 1,

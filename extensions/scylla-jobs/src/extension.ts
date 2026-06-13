@@ -10,6 +10,7 @@ import type { PipelineRunStatus } from './types';
 import { PipelineRunner } from './pipelineRunner';
 import { PRESETS, getPreset, materializePreset } from './pipelinePresets';
 import { ScyllaDashboardPanel } from './dashboardPanel';
+import { governor } from './governor';
 
 class ScyllaRunHistoryProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
@@ -116,6 +117,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	const pendingJobRuns = new Map<string, NodeJS.Timeout>();
 	const activeJobRuns = new Set<string>();
 	const queuedAutoRuns = new Set<string>();
+	const consentPromptedPaths = new Set<string>();
 
 	const executePipelineJob = async (
 		jobFilePath: string,
@@ -123,6 +125,34 @@ export function activate(context: vscode.ExtensionContext): void {
 		autoTriggered: boolean
 	): Promise<PipelineRunStatus | undefined> => {
 		const normalizedPath = path.resolve(jobFilePath);
+
+		// Governor consent gate: an AUTO-triggered run (file watcher / startup)
+		// must NOT silently launch scanners at the job's target unless the user
+		// has attested authorization (scylla.governor.consent). Instead we surface
+		// a one-off, non-blocking prompt. Explicit runs (autoTriggered=false from
+		// runJob / "Run scan now") always proceed. We return BEFORE touching the
+		// activeJobRuns / queuedAutoRuns sets so their dedup state stays clean.
+		if (autoTriggered && !governor.isAutoRunAllowed()) {
+			if (!consentPromptedPaths.has(normalizedPath)) {
+				consentPromptedPaths.add(normalizedPath);
+				void vscode.window.showWarningMessage(
+					`Scylla auto-run is disabled. A job file (${path.basename(normalizedPath)}) wants to scan its target. ` +
+					`Only run it if you are authorized to test that target.`,
+					'Run scan now',
+					'Always auto-run'
+				).then(choice => {
+					if (choice === 'Run scan now') {
+						void executePipelineJob(normalizedPath, false, false);
+					} else if (choice === 'Always auto-run') {
+						void vscode.workspace.getConfiguration('scylla.governor')
+							.update('consent', true, vscode.ConfigurationTarget.Workspace)
+							.then(() => executePipelineJob(normalizedPath, false, false));
+					}
+				});
+			}
+			return undefined;
+		}
+
 		if (activeJobRuns.has(normalizedPath)) {
 			if (autoTriggered) {
 				queuedAutoRuns.add(normalizedPath);
@@ -250,7 +280,18 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Headless: Run Pipeline
 	// -----------------------------------------------------------------------
 	context.subscriptions.push(
-		vscode.commands.registerCommand('scylla.jobs.runJobHeadless', async (options?: { jobFile?: string; quiet?: boolean }) => {
+		vscode.commands.registerCommand('scylla.jobs.runJobHeadless', async (options?: { jobFile?: string; quiet?: boolean; force?: boolean }) => {
+			// runJobHeadless is the PROGRAMMATIC entrypoint (callable by any caller
+			// via executeCommand), so it honors the consent attestation rather than
+			// firing scanners unconditionally. The interactive "Run Pipeline" command
+			// (scylla.jobs.runJob) is the consent-free explicit path. A trusted caller
+			// can pass force:true to opt in.
+			if (!options?.force && !governor.isAutoRunAllowed()) {
+				throw new Error(
+					'Scylla auto-run is disabled. Enable "scylla.governor.consent" (you are authorized ' +
+					'to test these targets) or run the pipeline interactively via "Scylla Jobs: Run Pipeline".'
+				);
+			}
 			const jobFile = options?.jobFile ?? '.scylla_job.json';
 			return runner.runJobFile(jobFile, options?.quiet);
 		}),
@@ -445,8 +486,11 @@ export function activate(context: vscode.ExtensionContext): void {
 	const jobWatcher = vscode.workspace.createFileSystemWatcher('**/.scylla_job.json');
 	context.subscriptions.push(jobWatcher);
 	context.subscriptions.push(
-		jobWatcher.onDidCreate(uri => scheduleJobRun(uri.fsPath)),
-		jobWatcher.onDidChange(uri => scheduleJobRun(uri.fsPath))
+		// Clear the one-off consent prompt memo on a genuine create/change so a
+		// newly written/edited job file re-surfaces the "Run scan now" warning
+		// (otherwise the path is muted forever after the first dismissal).
+		jobWatcher.onDidCreate(uri => { consentPromptedPaths.delete(path.resolve(uri.fsPath)); scheduleJobRun(uri.fsPath); }),
+		jobWatcher.onDidChange(uri => { consentPromptedPaths.delete(path.resolve(uri.fsPath)); scheduleJobRun(uri.fsPath); })
 	);
 	context.subscriptions.push({
 		dispose: () => {
@@ -457,8 +501,14 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	});
 
-	// Trigger execution for workspace jobs presently available
-	autoRunExistingJobs();
+	// Trigger execution for workspace jobs presently available -- but ONLY when
+	// the user has opted into auto-run (scylla.governor.consent). Without consent,
+	// merely opening a workspace that contains a committed .scylla_job.json no
+	// longer silently blasts scanners at its target; the file watcher still
+	// surfaces a "Run scan now" prompt on a deliberate create/change.
+	if (governor.isAutoRunAllowed()) {
+		autoRunExistingJobs();
+	}
 }
 
 export function deactivate(): void {}

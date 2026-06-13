@@ -54,6 +54,12 @@ interface ScanOptions {
 	profiles?: string[];
 }
 
+/** Extract the lowercased host from a URL (or bare host) for per-host header caching. */
+function hostOf(url: string): string {
+	try { return new URL(url.includes('://') ? url : `http://${url}`).hostname.toLowerCase(); }
+	catch { return url.toLowerCase(); }
+}
+
 export async function scanIdor(
 	target: string,
 	crawlResultFile?: string,
@@ -72,32 +78,35 @@ export async function scanIdor(
 	// Extract identifiable endpoints (URLs with IDs)
 	const testCases = generateTestCases(endpoints, strategies);
 
-	// Get auth headers for different profiles
-	let profileHeaders: Record<string, Record<string, string>> = {};
-	if (options?.profiles && options.profiles.length >= 2) {
-		for (const profileName of options.profiles) {
-			try {
-				const result = await vscode.commands.executeCommand<{ headers: Record<string, string> }>(
-					'scylla.auth.getHeadersHeadless',
-					{ profileName }
-				);
-				if (result?.headers) {
-					profileHeaders[profileName] = result.headers;
-				}
-			} catch {
-				// Auth extension not available
-			}
+	// Resolve auth headers PER REQUEST HOST (not once per target) so cookies stay
+	// domain-scoped: a crawl can yield endpoints on different hosts, and reusing a
+	// single target-scoped header map would re-leak cookies cross-host. Headers are
+	// cached by profile+host to avoid re-querying the auth extension per request.
+	const usingProfiles = !!(options?.profiles && options.profiles.length >= 2);
+	const staticHeaders: Record<string, string> = { ...options?.headers };
+	if (options?.cookie) { staticHeaders['cookie'] = options.cookie; }
+	const headerCache = new Map<string, Record<string, string>>();
+
+	const resolveHeaders = async (profileName: string, url: string): Promise<Record<string, string>> => {
+		if (!usingProfiles) { return staticHeaders; }
+		const key = `${profileName}\n${hostOf(url)}`;
+		const cached = headerCache.get(key);
+		if (cached) { return cached; }
+		let headers: Record<string, string> = {};
+		try {
+			const result = await vscode.commands.executeCommand<{ headers: Record<string, string> }>(
+				'scylla.auth.getHeadersHeadless',
+				{ profileName, targetUrl: url }
+			);
+			if (result?.headers) { headers = result.headers; }
+		} catch {
+			// Auth extension not available
 		}
-	}
+		headerCache.set(key, headers);
+		return headers;
+	};
 
-	// If no profiles available, use static headers
-	if (Object.keys(profileHeaders).length === 0) {
-		const staticHeaders: Record<string, string> = { ...options?.headers };
-		if (options?.cookie) { staticHeaders['cookie'] = options.cookie; }
-		profileHeaders = { 'default': staticHeaders };
-	}
-
-	const profileNames = Object.keys(profileHeaders);
+	const profileNames = usingProfiles && options?.profiles ? options.profiles : ['default'];
 
 	for (const testCase of testCases) {
 		// Strategy: send original request as User A, modified request as User A (or User B if available)
@@ -105,21 +114,21 @@ export async function scanIdor(
 		const userBProfile = profileNames.length >= 2 ? profileNames[1] : profileNames[0];
 
 		try {
-			// Request 1: Original URL with User A
+			// Request 1: Original URL with User A (headers scoped to this URL's host)
 			const originalResponse = await performHttpRequest(
 				testCase.method,
 				testCase.originalUrl,
-				profileHeaders[userAProfile],
+				await resolveHeaders(userAProfile, testCase.originalUrl),
 				options?.timeoutMs,
 			);
 
 			if (options?.delayMs) { await sleep(options.delayMs); }
 
-			// Request 2: Modified URL (with swapped ID) using User B's session (or User A if single profile)
+			// Request 2: Modified URL (with swapped ID) using User B's session (headers scoped to this URL's host)
 			const modifiedResponse = await performHttpRequest(
 				testCase.method === 'method-swap' ? swapMethod(testCase.method) : testCase.method,
 				testCase.testedUrl,
-				profileHeaders[userBProfile],
+				await resolveHeaders(userBProfile, testCase.testedUrl),
 				options?.timeoutMs,
 			);
 

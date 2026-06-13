@@ -35,6 +35,18 @@ export interface ScyllaJobFile {
 	 */
 	hosts?: Record<string, string>;
 	/**
+	 * Additional in-scope host patterns for this engagement, beyond `target`.
+	 * Published to the governor so the egress layer constrains all traffic to
+	 * the authorized scope. Supports exact hosts and `*.wildcard` patterns:
+	 *
+	 * ```json
+	 * { "scope": ["api.target.com", "*.target.com"] }
+	 * ```
+	 *
+	 * When omitted, scope is derived from `target` (and any `hosts` keys).
+	 */
+	scope?: string[];
+	/**
 	 * Authentication profiles for authenticated scanning (Scylla 2.0).
 	 * Supports multiple profiles for multi-role testing (e.g., IDOR, PrivEsc).
 	 *

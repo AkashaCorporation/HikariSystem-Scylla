@@ -5,6 +5,27 @@ All notable changes to the HikariSystem Scylla Studio project will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - "Scope Governor"
+
+> **Security hardening: a shared Scope + Rate-Limit Governor.** Scylla hits LIVE targets, so it now enforces the authorized engagement boundary at every egress, throttles traffic, and no longer auto-fires scans the moment a job file appears. Off by default (back-compatible); you opt in per engagement via the `scylla.governor.*` settings.
+
+### Added
+
+- **Scope + Rate-Limit Governor** (`scylla.governor.*` settings): an in-scope host allowlist (exact + `*.wildcard`), a per-host token-bucket rate limit (`rateLimitPerSec`), a global concurrency cap (`maxConcurrency`), and an auto-run consent toggle (`consent`). One shared primitive that every extension reads from VS Code settings.
+- **Engagement-scope commands**: `scylla.http.{set,clear,get}ScopeHeadless` and `scylla.auth.{set,clear,get}ScopeHeadless`. A pipeline run publishes its declared target(s) to the egress layer (mirroring custom-host registration) without touching `settings.json`.
+- **`.scylla_job.json` `scope` field**: extra in-scope host patterns for an engagement, beyond `target`.
+
+### Changed
+
+- **Job auto-run is now consent-gated (default OFF).** Dropping, editing, or opening a workspace with a `.scylla_job.json` no longer silently launches scanners at its target; you get a "Run scan now" / "Always auto-run" prompt instead. The interactive "Run Pipeline" command stays the explicit, consent-free path. A pipeline run constrains the egress layer to its declared scope and clears it when finished.
+- **`scylla-http` egress is governed.** The `sendHeadless` chokepoint now enforces scope, rate limit, and concurrency on every request, re-checking scope per redirect hop (an out-of-scope `Location` is no longer followed).
+- **Auth cookies are domain-scoped.** `getHeadersHeadless` threads the target URL so cookies are matched to the request host (fixes a cross-host session leak that also polluted IDOR/privesc results); the IDOR scanner re-resolves headers per crawl-endpoint host. Auth-side login egress is scope-gated (closes the auto-login SSRF) and throttled.
+- **Port scanner is scoped.** Raw TCP connects now enforce the engagement scope before dialing and honor the rate/concurrency budget.
+
+### Security
+
+- Closes the "no guardrails" gap: out-of-scope hits (a bounty-scope violation), unthrottled bursts (rate-limit bans / accidental DoS), silent job auto-fire, and cross-host credential leakage are all addressed by the governor.
+
 ## [2.1.0] - 2026-05-27 - "Hybrid XSS Engine: Dalfox + XSStrike"
 
 > **Major Release: Hybrid XSS Engine** — A complete overhaul of the XSS scanning capabilities. The `scylla.scanner.xssHeadless` command is now powered by a two-phase hybrid engine combining Dalfox's speed and AST validation with XSStrike's dynamic payload fuzzing and WAF evasion. This eliminates false positives and generates bespoke payloads to bypass Web Application Firewalls natively in TypeScript without any C++ (N-API) dependencies.

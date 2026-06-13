@@ -19,6 +19,7 @@ import {
 } from './artifacts';
 import { performRequest } from './httpClient';
 import { hostResolver } from './hostResolver';
+import { governor } from './governor';
 import type { HttpRequestDefinition, HttpSaveRequestCommandOptions, HttpSendCommandOptions, HttpSendResult, SavedRequestResult } from './types';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -96,6 +97,36 @@ export function activate(context: vscode.ExtensionContext): void {
 
 		vscode.commands.registerCommand('scylla.http.getHostsHeadless', () => {
 			return { hosts: hostResolver.getAll(), count: hostResolver.size };
+		}),
+
+		// -----------------------------------------------------------------
+		// Governor scope commands  (ephemeral, per-run egress allowlist)
+		//
+		// A job run publishes its declared target(s) here -- mirroring
+		// setHostsHeadless -- so the egress layer constrains traffic to the
+		// engagement scope WITHOUT mutating the user's settings.json. The
+		// effective scope is this runtime set UNION the scylla.governor.scope
+		// setting.
+		// -----------------------------------------------------------------
+
+		vscode.commands.registerCommand('scylla.http.setScopeHeadless', (arg?: { scope?: string[]; replace?: boolean }) => {
+			if (!arg?.scope || !Array.isArray(arg.scope)) {
+				throw new Error('scylla.http.setScopeHeadless requires a "scope" array of host patterns.');
+			}
+			if (arg.replace) {
+				governor.clearRuntimeScope();
+			}
+			governor.seedScope(arg.scope);
+			return { scope: governor.getEffectiveScope() };
+		}),
+
+		vscode.commands.registerCommand('scylla.http.clearScopeHeadless', () => {
+			governor.clearRuntimeScope();
+			return { scope: governor.getEffectiveScope() };
+		}),
+
+		vscode.commands.registerCommand('scylla.http.getScopeHeadless', () => {
+			return { scope: governor.getEffectiveScope(), config: governor.getConfig() };
 		})
 	);
 }
@@ -208,6 +239,10 @@ async function executeSend(
 		timeoutMs: requestDefinition.timeoutMs ?? options.timeoutMs,
 		followRedirects: options.followRedirects ?? requestDefinition.followRedirects
 	});
+	// Governor scope gate: fast, user-facing rejection for the INITIAL request
+	// (covers send / sendHeadless / replayHeadless) before any socket work.
+	// httpClient enforces scope again per redirect hop (the authoritative gate).
+	governor.assertInScope(normalizedRequest.url);
 	const response = await performRequest(normalizedRequest, normalizeMaxBodyBytes(options.maxBodyBytes));
 	const generatedAt = new Date().toISOString();
 	const result: HttpSendResult = {

@@ -66,9 +66,10 @@ export async function scanPrivesc(
 	const startTime = Date.now();
 	const findings: PrivescFinding[] = [];
 
-	// Step 1: Get auth headers for both profiles
-	const highPrivHeaders = await getProfileHeaders(highPrivProfile);
-	const lowPrivHeaders = await getProfileHeaders(lowPrivProfile);
+	// Step 1: Get auth headers for both profiles (scoped to the target host so
+	// cookies don't leak cross-host and pollute the access-control comparison).
+	const highPrivHeaders = await getProfileHeaders(highPrivProfile, target);
+	const lowPrivHeaders = await getProfileHeaders(lowPrivProfile, target);
 
 	if (!highPrivHeaders || !lowPrivHeaders) {
 		return {
@@ -295,11 +296,11 @@ interface HttpResult {
 	headers: Record<string, string>;
 }
 
-async function getProfileHeaders(profileName: string): Promise<Record<string, string> | undefined> {
+async function getProfileHeaders(profileName: string, targetUrl?: string): Promise<Record<string, string> | undefined> {
 	try {
 		const result = await vscode.commands.executeCommand<{ headers: Record<string, string> }>(
 			'scylla.auth.getHeadersHeadless',
-			{ profileName }
+			{ profileName, targetUrl }
 		);
 		return result?.headers;
 	} catch {

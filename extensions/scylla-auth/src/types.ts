@@ -150,6 +150,12 @@ export interface SessionRefreshCommandOptions {
 export interface GetHeadersCommandOptions {
 	/** Profile name to get headers for */
 	profileName?: string;
+	/**
+	 * Target URL to scope cookies to. When set, only cookies whose domain/path
+	 * match this URL are returned (closes the cross-host session leak). When
+	 * omitted, the legacy all-cookies behavior is preserved for back-compat.
+	 */
+	targetUrl?: string;
 	/** Don't show UI notifications */
 	quiet?: boolean;
 }

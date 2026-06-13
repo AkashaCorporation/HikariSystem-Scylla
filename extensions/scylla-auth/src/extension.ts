@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { sessionManager } from './sessionManager';
+import { governor } from './governor';
 import type {
 	GetHeadersCommandOptions,
 	LoginCommandOptions,
@@ -235,7 +236,38 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('scylla.auth.getHeadersHeadless', (arg?: GetHeadersCommandOptions) => {
 			const name = arg?.profileName ?? 'default';
-			return sessionManager.getAuthHeaders(name);
+			// Pass targetUrl so cookies are domain-scoped to the request host.
+			// Without it, buildAuthHeaders falls back to sending EVERY cookie in
+			// the jar to EVERY host (a cross-host session leak that also breaks
+			// IDOR reliability). Omitting targetUrl keeps the legacy behavior.
+			return sessionManager.getAuthHeaders(name, arg?.targetUrl);
+		}),
+	);
+
+	// -------------------------------------------------------------------
+	// Governor scope commands  (parity with scylla-http; lets a job run
+	// constrain auth-side egress -- login, session-check, refresh -- to the
+	// engagement scope, closing the auto-login SSRF on out-of-scope hosts).
+	// -------------------------------------------------------------------
+	context.subscriptions.push(
+		vscode.commands.registerCommand('scylla.auth.setScopeHeadless', (arg?: { scope?: string[]; replace?: boolean }) => {
+			if (!arg?.scope || !Array.isArray(arg.scope)) {
+				throw new Error('scylla.auth.setScopeHeadless requires a "scope" array of host patterns.');
+			}
+			if (arg.replace) {
+				governor.clearRuntimeScope();
+			}
+			governor.seedScope(arg.scope);
+			return { scope: governor.getEffectiveScope() };
+		}),
+
+		vscode.commands.registerCommand('scylla.auth.clearScopeHeadless', () => {
+			governor.clearRuntimeScope();
+			return { scope: governor.getEffectiveScope() };
+		}),
+
+		vscode.commands.registerCommand('scylla.auth.getScopeHeadless', () => {
+			return { scope: governor.getEffectiveScope(), config: governor.getConfig() };
 		}),
 	);
 

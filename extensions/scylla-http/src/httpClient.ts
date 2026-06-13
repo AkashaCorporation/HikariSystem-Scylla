@@ -8,8 +8,15 @@ import * as https from 'https';
 import type { HttpRequestDefinition, HttpResponseData } from './types';
 import { normalizeHeaders } from './artifacts';
 import { hostResolver } from './hostResolver';
+import { governor } from './governor';
 
 const DEFAULT_REDIRECT_LIMIT = 5;
+// Defensive fallback: performRequest is exported, so a caller could pass a
+// request with no timeoutMs. Without a socket timeout a stalled/trickle response
+// that never emits 'end' or 'error' would hang dispatchSingle and hold its
+// governor concurrency slot forever. The executeSend path normalizes timeoutMs
+// to >= 1000ms; this just guards the direct-call path.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export async function performRequest(
 	requestDefinition: HttpRequestDefinition,
@@ -18,14 +25,79 @@ export async function performRequest(
 	return performRequestInternal(requestDefinition, maxBodyBytes, DEFAULT_REDIRECT_LIMIT);
 }
 
-function performRequestInternal(
+/** Result of a single wire request (one `transport.request`, no redirect following). */
+interface SingleDispatch {
+	data: HttpResponseData;
+	location?: string;
+	statusCode: number;
+}
+
+async function performRequestInternal(
 	requestDefinition: HttpRequestDefinition,
 	maxBodyBytes: number,
 	redirectsRemaining: number,
 	redirectCount: number = 0,
 	currentUrl: string = requestDefinition.url
 ): Promise<HttpResponseData> {
-	return new Promise<HttpResponseData>((resolve, reject) => {
+	// Per-hop scope enforcement. Redirects re-enter HERE (see the recursion
+	// below) with a fresh `currentUrl`, so an out-of-scope `Location` bounce is
+	// blocked exactly like an out-of-scope initial request -- the scanner can
+	// no longer be redirected off the authorized engagement scope.
+	governor.assertInScope(currentUrl);
+	const host = new URL(currentUrl).hostname;
+
+	// Per-hop rate limit + global concurrency cap. The slot is held ONLY for the
+	// lifetime of the single wire request; the redirect that may follow re-enters
+	// performRequestInternal and acquires its own slot, so a redirect chain does
+	// not pin multiple concurrency slots at once.
+	await governor.acquire(host);
+	let dispatch: SingleDispatch;
+	try {
+		dispatch = await dispatchSingle(requestDefinition, maxBodyBytes, redirectCount, currentUrl);
+	} finally {
+		governor.release(host);
+	}
+
+	if (
+		requestDefinition.followRedirects !== false &&
+		dispatch.location &&
+		isRedirectStatus(dispatch.statusCode) &&
+		redirectsRemaining > 0
+	) {
+		try {
+			const redirectedUrl = new URL(dispatch.location, currentUrl).toString();
+			const nextRequest: HttpRequestDefinition = {
+				...requestDefinition,
+				method: dispatch.statusCode === 303 ? 'GET' : requestDefinition.method,
+				body: dispatch.statusCode === 303 ? undefined : requestDefinition.body
+			};
+			return await performRequestInternal(
+				nextRequest,
+				maxBodyBytes,
+				redirectsRemaining - 1,
+				redirectCount + 1,
+				redirectedUrl
+			);
+		} catch (error: unknown) {
+			// The redirect failed -- either a DNS ENOTFOUND on a local CTF domain,
+			// OR the redirect target is OUT OF SCOPE (ScopeViolationError). Either
+			// way we gracefully return the current 30X response instead of
+			// crashing the pipeline or following the scanner off-scope.
+			return dispatch.data;
+		}
+	}
+
+	return dispatch.data;
+}
+
+/** Perform exactly one HTTP/HTTPS request (no redirect following) and capture the response. */
+function dispatchSingle(
+	requestDefinition: HttpRequestDefinition,
+	maxBodyBytes: number,
+	redirectCount: number,
+	currentUrl: string
+): Promise<SingleDispatch> {
+	return new Promise<SingleDispatch>((resolve, reject) => {
 		const url = new URL(currentUrl);
 		const transport = url.protocol === 'https:' ? https : http;
 		const method = requestDefinition.method.toUpperCase();
@@ -39,6 +111,7 @@ function performRequestInternal(
 		}
 
 		const startedAt = Date.now();
+		const effectiveTimeoutMs = requestDefinition.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 		const requestOptions: http.RequestOptions = {
 			protocol: url.protocol,
 			hostname: url.hostname,
@@ -46,7 +119,7 @@ function performRequestInternal(
 			path: `${url.pathname}${url.search}`,
 			method,
 			headers,
-			timeout: requestDefinition.timeoutMs,
+			timeout: effectiveTimeoutMs,
 		};
 
 		// Inject custom DNS resolver so Scylla can resolve CTF/HTB vhosts
@@ -83,11 +156,11 @@ function performRequestInternal(
 					truncated = true;
 				});
 
-				incoming.on('end', async () => {
+				incoming.on('end', () => {
 					const statusCode = incoming.statusCode ?? 0;
 					const location = typeof incoming.headers.location === 'string' ? incoming.headers.location : undefined;
-					
-					const currentResponseData: HttpResponseData = {
+
+					const data: HttpResponseData = {
 						statusCode,
 						statusMessage: incoming.statusMessage ?? '',
 						headers: normalizeResponseHeaders(incoming.headers),
@@ -100,36 +173,7 @@ function performRequestInternal(
 						finalUrl: currentUrl
 					};
 
-					if (
-						requestDefinition.followRedirects !== false &&
-						location &&
-						isRedirectStatus(statusCode) &&
-						redirectsRemaining > 0
-					) {
-						try {
-							const redirectedUrl = new URL(location, currentUrl).toString();
-							const nextRequest: HttpRequestDefinition = {
-								...requestDefinition,
-								method: statusCode === 303 ? 'GET' : requestDefinition.method,
-								body: statusCode === 303 ? undefined : requestDefinition.body
-							};
-							const redirected = await performRequestInternal(
-								nextRequest,
-								maxBodyBytes,
-								redirectsRemaining - 1,
-								redirectCount + 1,
-								redirectedUrl
-							);
-							resolve(redirected);
-						} catch (error: unknown) {
-							// If the redirect failed (e.g. DNS ENOTFOUND on a local CTF domain),
-							// we gracefully return the current 30X response instead of crashing the pipeline.
-							resolve(currentResponseData);
-						}
-						return;
-					}
-
-					resolve(currentResponseData);
+					resolve({ data, location, statusCode });
 				});
 
 				incoming.on('error', reject);
@@ -137,7 +181,7 @@ function performRequestInternal(
 		);
 
 		request.on('timeout', () => {
-			request.destroy(new Error(`Request timed out after ${requestDefinition.timeoutMs}ms.`));
+			request.destroy(new Error(`Request timed out after ${effectiveTimeoutMs}ms.`));
 		});
 		request.on('error', reject);
 

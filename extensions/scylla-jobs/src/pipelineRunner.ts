@@ -186,6 +186,14 @@ export class PipelineRunner {
 			}
 		}
 
+		// Governor scope publish: constrain the egress layer to this job's declared
+		// target(s) BEFORE any auth login or scan step runs (mirrors the custom-hosts
+		// registration above). Cleared in the finally below so one job's scope never
+		// leaks into the next run or an interactive send.
+		await this.publishScope(job, appendLog);
+
+		try {
+
 		// Auth Phase: Handle Multi-Profile Authentication Before Scanning
 		if (job.auth?.profiles && Object.keys(job.auth.profiles).length > 0) {
 			const shouldLoginAll = job.auth.loginAll ?? true;
@@ -256,6 +264,9 @@ export class PipelineRunner {
 		
 		flushStatus();
 		return status;
+		} finally {
+			await this.clearScope(appendLog);
+		}
 	}
 
 	private async executeStep(
@@ -495,6 +506,61 @@ export class PipelineRunner {
 		}
 	}
 
+	/**
+	 * Publish this job's engagement scope to the governor (egress + auth hosts)
+	 * so out-of-scope traffic is blocked. Derived from `job.scope` (if any) plus
+	 * the job target and any declared custom-host keys. Best-effort: a missing
+	 * scylla-http / scylla-auth extension is tolerated.
+	 */
+	private async publishScope(job: ScyllaJobFile, appendLog: (line: string) => void): Promise<void> {
+		const patterns = this.deriveScopePatterns(job);
+		if (patterns.length === 0) { return; }
+		try {
+			await vscode.commands.executeCommand('scylla.http.setScopeHeadless', { scope: patterns, replace: true });
+			appendLog(`[Scope] Engagement scope set: ${patterns.join(', ')}`);
+		} catch {
+			appendLog('[Scope] Warning: could not set egress scope (scylla-http not available).');
+		}
+		// Forward-compatible: also scope the auth host if it exposes the command.
+		try {
+			await vscode.commands.executeCommand('scylla.auth.setScopeHeadless', { scope: patterns, replace: true });
+		} catch { /* scylla-auth may not expose scope yet */ }
+	}
+
+	/** Drop the ephemeral run scope from the governor (settings scope is untouched). */
+	private async clearScope(appendLog: (line: string) => void): Promise<void> {
+		try {
+			await vscode.commands.executeCommand('scylla.http.clearScopeHeadless');
+		} catch { /* ignore */ }
+		try {
+			await vscode.commands.executeCommand('scylla.auth.clearScopeHeadless');
+		} catch { /* ignore */ }
+		appendLog('[Scope] Engagement scope cleared.');
+	}
+
+	/** Reduce a job's target / scope / hosts into governor host patterns. */
+	private deriveScopePatterns(job: ScyllaJobFile): string[] {
+		const out = new Set<string>();
+		const addHost = (value: string | undefined): void => {
+			if (!value || typeof value !== 'string') { return; }
+			const v = value.trim();
+			if (!v) { return; }
+			if (v.startsWith('*.')) { out.add(v.toLowerCase()); return; }
+			try {
+				const withScheme = v.includes('://') ? v : `http://${v}`;
+				const host = new URL(withScheme).hostname.toLowerCase();
+				if (host) { out.add(host); }
+			} catch {
+				const bare = v.toLowerCase().split('/')[0].split(':')[0];
+				if (bare) { out.add(bare); }
+			}
+		};
+		addHost(job.target);
+		for (const p of job.scope ?? []) { addHost(p); }
+		for (const h of Object.keys(job.hosts ?? {})) { addHost(h); }
+		return Array.from(out);
+	}
+
 	private validateJob(job: ScyllaJobFile): void {
 		if (!job.target || typeof job.target !== 'string') {
 			throw new Error('Job file must have a "target" field (URL or hostname).');
@@ -625,6 +691,17 @@ export class PipelineRunner {
 			for (const [hostname, ip] of Object.entries(hostsToRegister)) {
 				appendLog(`[Auto-DNS] Registered ${hostname} -> ${ip} (detected from ${stepStatus.cmd} redirect)`);
 			}
+
+			// Keep the governor scope consistent with what the pipeline now scans:
+			// each detected vhost resolves to the target IP (the same box), so add
+			// them to the engagement scope ADDITIVELY. Without this, an enforced
+			// scope would block the very vhost traffic the pipeline just switched to.
+			try {
+				const newScope = Object.keys(hostsToRegister);
+				await vscode.commands.executeCommand('scylla.http.setScopeHeadless', { scope: newScope, replace: false });
+				await vscode.commands.executeCommand('scylla.auth.setScopeHeadless', { scope: newScope, replace: false });
+				appendLog(`[Scope] Extended engagement scope with detected vhost(s): ${newScope.join(', ')}`);
+			} catch { /* scope commands are best-effort */ }
 
 			// Use the first detected vhost as the URL for all subsequent web-facing steps.
 			// This prevents every request from hitting the raw IP and getting 301 redirects.

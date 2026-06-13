@@ -85,8 +85,8 @@ export async function scanMassAssign(
 	const categories: MassAssignCategory[] = options?.categories ??
 		['role-escalation', 'financial', 'verification-bypass'];
 
-	// Get auth headers
-	const authHeaders = await getAuthHeaders(options?.profileName, options?.headers, options?.cookie);
+	// Get auth headers (scoped to the target host so cookies don't leak cross-host)
+	const authHeaders = await getAuthHeaders(options?.profileName, options?.headers, options?.cookie, target);
 
 	// Find POST/PUT/PATCH endpoints
 	const endpoints = crawlResultFile
@@ -403,6 +403,7 @@ async function getAuthHeaders(
 	profileName?: string,
 	staticHeaders?: Record<string, string>,
 	cookie?: string,
+	targetUrl?: string,
 ): Promise<Record<string, string>> {
 	const headers: Record<string, string> = { ...staticHeaders };
 	if (cookie) { headers['cookie'] = cookie; }
@@ -411,7 +412,7 @@ async function getAuthHeaders(
 		try {
 			const result = await vscode.commands.executeCommand<{ headers: Record<string, string> }>(
 				'scylla.auth.getHeadersHeadless',
-				{ profileName }
+				{ profileName, targetUrl }
 			);
 			if (result?.headers) {
 				Object.assign(headers, result.headers);

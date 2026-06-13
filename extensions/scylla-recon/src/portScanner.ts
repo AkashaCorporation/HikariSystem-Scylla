@@ -6,6 +6,7 @@
 import * as net from 'net';
 import { ConcurrencyPool } from './concurrencyPool';
 import { lookupService, parsePorts } from './portDatabase';
+import { governor } from './governor';
 import type { OpenPort, PortScanResult } from './types';
 
 const DEFAULT_TIMEOUT_MS = 2_000;
@@ -26,6 +27,12 @@ export async function scanPorts(
 	concurrency: number = DEFAULT_CONCURRENCY,
 	onProgress?: (progress: PortScanProgress) => void
 ): Promise<PortScanResult> {
+	// Governor scope gate: a port scan is raw TCP egress that does NOT pass
+	// through the scylla-http chokepoint, so it must enforce the engagement scope
+	// itself. This blocks scanning out-of-scope, internal (RFC1918), localhost, or
+	// cloud-metadata hosts when a scope is configured (permissive when it is not).
+	governor.assertInScope(target);
+
 	const ports = parsePorts(portsSpec);
 	if (ports.length === 0) {
 		throw new Error('No valid ports to scan.');
@@ -41,7 +48,10 @@ export async function scanPorts(
 
 	const tasks = ports.map(port =>
 		pool.run(async () => {
-			const result = await probePort(target, port, timeoutMs);
+			// Per-connect governor token + concurrency slot so the per-host rate
+			// limit and global concurrency cap also bound the port-scan burst.
+			await governor.acquire(target);
+			const result = await probePort(target, port, timeoutMs).finally(() => governor.release(target));
 			scanned++;
 
 			if (result.state === 'open') {

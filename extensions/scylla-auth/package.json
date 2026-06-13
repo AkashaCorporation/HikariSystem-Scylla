@@ -33,7 +33,10 @@
 		"onCommand:scylla.auth.sessionRefreshHeadless",
 		"onCommand:scylla.auth.getHeadersHeadless",
 		"onCommand:scylla.auth.listProfilesHeadless",
-		"onCommand:scylla.auth.clearSessionsHeadless"
+		"onCommand:scylla.auth.clearSessionsHeadless",
+		"onCommand:scylla.auth.setScopeHeadless",
+		"onCommand:scylla.auth.clearScopeHeadless",
+		"onCommand:scylla.auth.getScopeHeadless"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
@@ -48,7 +51,10 @@
 			{ "command": "scylla.auth.sessionRefreshHeadless", "title": "Scylla Auth: Refresh Session (Headless)", "category": "Scylla Auth" },
 			{ "command": "scylla.auth.getHeadersHeadless", "title": "Scylla Auth: Get Auth Headers (Headless)", "category": "Scylla Auth" },
 			{ "command": "scylla.auth.listProfilesHeadless", "title": "Scylla Auth: List Profiles (Headless)", "category": "Scylla Auth" },
-			{ "command": "scylla.auth.clearSessionsHeadless", "title": "Scylla Auth: Clear Sessions (Headless)", "category": "Scylla Auth" }
+			{ "command": "scylla.auth.clearSessionsHeadless", "title": "Scylla Auth: Clear Sessions (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.setScopeHeadless", "title": "Scylla Auth: Set Engagement Scope (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.clearScopeHeadless", "title": "Scylla Auth: Clear Engagement Scope (Headless)", "category": "Scylla Auth" },
+			{ "command": "scylla.auth.getScopeHeadless", "title": "Scylla Auth: Get Engagement Scope (Headless)", "category": "Scylla Auth" }
 		]
 	},
 	"scripts": {

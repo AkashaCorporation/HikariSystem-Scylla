@@ -8,6 +8,7 @@ import * as https from 'https';
 import * as querystring from 'querystring';
 import { CookieJar } from './cookieJar';
 import { extractCsrfFromHtml, extractCsrfFromHeaders, getCsrfHeaderName } from './csrfExtractor';
+import { governor } from './governor';
 import type {
 	AuthProfile,
 	AuthHeadersResult,
@@ -585,16 +586,26 @@ export class SessionManager {
 	// HTTP Client (self-contained — avoids circular dependency with scylla-http)
 	// -----------------------------------------------------------------------
 
-	private httpRequest(
+	private async httpRequest(
 		method: string,
 		url: string,
 		body: string | undefined,
 		headers: Record<string, string>,
 		timeoutMs: number,
 	): Promise<HttpResponse> {
-		return new Promise<HttpResponse>((resolve, reject) => {
-			const parsedUrl = new URL(url);
-			const transport = parsedUrl.protocol === 'https:' ? https : http;
+		const parsedUrl = new URL(url);
+		// Governor scope gate on the auth extension's OWN egress (login form/api,
+		// session-check, refresh, OAuth token, and post-login redirect follows).
+		// This is a separate egress path from scylla-http, so without this gate a
+		// malicious loginUrl or post-login redirect could send credentials to an
+		// off-scope/internal host (auto-login SSRF). Permissive when scope unset.
+		governor.assertInScope(url);
+		// Take a governor rate token + concurrency slot so auth egress is throttled
+		// and counted against the same budget as scylla-http (rate/concurrency parity).
+		await governor.acquire(parsedUrl.hostname);
+		try {
+			return await new Promise<HttpResponse>((resolve, reject) => {
+				const transport = parsedUrl.protocol === 'https:' ? https : http;
 
 			const finalHeaders = { ...headers };
 			if (body && !this.hasHeader(finalHeaders, 'content-length')) {
@@ -643,7 +654,10 @@ export class SessionManager {
 
 			if (body) { request.write(body); }
 			request.end();
-		});
+			});
+		} finally {
+			governor.release(parsedUrl.hostname);
+		}
 	}
 
 	private hasHeader(headers: Record<string, string>, name: string): boolean {
