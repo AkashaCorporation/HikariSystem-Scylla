@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { delay } from './concurrencyPool';
 import type {
+	CrawlRedirect,
 	CrawlResult,
 	DiscoveredEndpoint,
 	DiscoveredForm,
@@ -62,6 +63,7 @@ export async function crawl(
 	const parameters: DiscoveredParameter[] = [];
 	const jsRoutes: string[] = [];
 	const externalLinks: string[] = [];
+	const redirects: CrawlRedirect[] = [];
 	const paramsSeen = new Set<string>();
 
 	const start = Date.now();
@@ -119,14 +121,44 @@ export async function crawl(
 				depth: item.depth,
 			});
 
+			// Resolve redirects: when the request was followed to a different final URL,
+			// record the hop and extract links/forms against the resolved URL instead of
+			// the pre-redirect one (otherwise relative links resolve against the wrong path).
+			const finalNormalized = normalizeUrl(response.finalUrl || normalized);
+			let extractionBase = normalized;
+			if (finalNormalized !== normalized) {
+				const finalInScope = isInScope(finalNormalized, seedParsed, scope);
+				redirects.push({
+					from: normalized,
+					to: finalNormalized,
+					statusCode: response.statusCode,
+					inScope: finalInScope,
+				});
+				if (finalInScope) {
+					extractionBase = finalNormalized;
+					if (!visited.has(finalNormalized)) {
+						visited.add(finalNormalized);
+						discovered.push({
+							url: finalNormalized,
+							method: 'GET',
+							statusCode: response.statusCode,
+							contentType,
+							depth: item.depth,
+						});
+					}
+				} else {
+					externalLinks.push(finalNormalized);
+				}
+			}
+
 			// Extract URL query parameters
 			try {
-				const parsedUrl = new URL(normalized);
+				const parsedUrl = new URL(extractionBase);
 				for (const [name] of parsedUrl.searchParams) {
-					const key = `query:${name}:${normalized}`;
+					const key = `query:${name}:${extractionBase}`;
 					if (!paramsSeen.has(key)) {
 						paramsSeen.add(key);
-						parameters.push({ name, location: 'query', url: normalized, method: 'GET' });
+						parameters.push({ name, location: 'query', url: extractionBase, method: 'GET' });
 					}
 				}
 			} catch { /* ignore */ }
@@ -143,7 +175,7 @@ export async function crawl(
 			const body = response.bodyText;
 
 			// Extract links
-			const links = extractLinks(body, normalized);
+			const links = extractLinks(body, extractionBase);
 			for (const link of links) {
 				if (!visited.has(normalizeUrl(link))) {
 					queue.push({ url: link, depth: item.depth + 1 });
@@ -151,7 +183,7 @@ export async function crawl(
 			}
 
 			// Extract forms
-			const pageForms = extractForms(body, normalized);
+			const pageForms = extractForms(body, extractionBase);
 			forms.push(...pageForms);
 			for (const form of pageForms) {
 				for (const input of form.inputs) {
@@ -178,7 +210,7 @@ export async function crawl(
 			}
 
 			// Extract script sources for crawling
-			const scriptSrcs = extractScriptSources(body, normalized);
+			const scriptSrcs = extractScriptSources(body, extractionBase);
 			for (const src of scriptSrcs) {
 				if (!visited.has(normalizeUrl(src))) {
 					queue.push({ url: src, depth: item.depth + 1 });
@@ -205,6 +237,7 @@ export async function crawl(
 		parameters,
 		jsRoutes,
 		externalLinks: [...new Set(externalLinks)],
+		redirects,
 		elapsedMs: Date.now() - start,
 	};
 }
@@ -362,6 +395,7 @@ export function generateCrawlReport(result: CrawlResult): string {
 	lines.push(`- **Parameters Found:** ${result.parameters.length}`);
 	lines.push(`- **JS Routes Found:** ${result.jsRoutes.length}`);
 	lines.push(`- **External Links:** ${result.externalLinks.length}`);
+	lines.push(`- **Redirects:** ${result.redirects.length}`);
 	lines.push(`- **Elapsed:** ${result.elapsedMs} ms`);
 	lines.push(`- **Generated:** ${result.generatedAt}`);
 	lines.push('');
@@ -412,6 +446,18 @@ export function generateCrawlReport(result: CrawlResult): string {
 		lines.push('');
 		for (const route of result.jsRoutes.slice(0, 50)) {
 			lines.push(`- \`${route}\``);
+		}
+		lines.push('');
+	}
+
+	if (result.redirects.length > 0) {
+		lines.push('## Redirects');
+		lines.push('');
+		lines.push('| From | To | Status | Scope |');
+		lines.push('|------|----|--------|-------|');
+		for (const redirect of result.redirects) {
+			const scopeMarker = redirect.inScope ? 'in-scope' : 'out-of-scope';
+			lines.push(`| \`${truncate(redirect.from, 50)}\` | \`${truncate(redirect.to, 50)}\` | ${redirect.statusCode} | ${scopeMarker} |`);
 		}
 		lines.push('');
 	}

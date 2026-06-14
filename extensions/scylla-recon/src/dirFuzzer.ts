@@ -40,7 +40,7 @@ export async function fuzzDirectories(
 	const followRedirects = options.followRedirects ?? false;
 	const extensions = options.extensions ?? [''];
 
-	const words = loadWordlist(options.wordlist ?? 'common');
+	const { words, source } = loadWordlist(options.wordlist ?? 'common');
 	if (words.length === 0) {
 		throw new Error('Wordlist is empty.');
 	}
@@ -144,14 +144,14 @@ export async function fuzzDirectories(
 	return {
 		generatedAt: new Date().toISOString(),
 		baseUrl: cleanBase,
-		wordlistUsed: options.wordlist ?? 'common',
+		wordlistUsed: source,
 		totalRequests,
 		discovered,
 		elapsedMs: Date.now() - start,
 	};
 }
 
-function loadWordlist(spec: string): string[] {
+function loadWordlist(spec: string): { words: string[]; source: string } {
 	// Built-in wordlists
 	if (spec === 'common' || spec === 'medium') {
 		const wordlistPath = path.join(__dirname, '..', 'src', 'wordlists', `${spec}.txt`);
@@ -163,22 +163,28 @@ function loadWordlist(spec: string): string[] {
 		];
 		for (const p of paths) {
 			if (fs.existsSync(p)) {
-				return fs.readFileSync(p, 'utf8')
+				const words = fs.readFileSync(p, 'utf8')
 					.split('\n')
 					.map(l => l.trim())
 					.filter(l => l.length > 0 && !l.startsWith('#'));
+				return { words, source: `${path.basename(p)} (bundled, ${words.length} words)` };
 			}
 		}
-		// Fallback: embedded minimal common wordlist
-		return EMBEDDED_COMMON_WORDS;
+		// Fallback: embedded minimal common wordlist. Never lie about the degradation -
+		// in particular 'medium' must not silently look like a real medium run.
+		return {
+			words: EMBEDDED_COMMON_WORDS,
+			source: `EMBEDDED FALLBACK (bundled ${spec}.txt not found) - ${EMBEDDED_COMMON_WORDS.length} words`,
+		};
 	}
 
 	// Custom file path
 	if (fs.existsSync(spec)) {
-		return fs.readFileSync(spec, 'utf8')
+		const words = fs.readFileSync(spec, 'utf8')
 			.split('\n')
 			.map(l => l.trim())
 			.filter(l => l.length > 0 && !l.startsWith('#'));
+		return { words, source: `custom file '${spec}' (${words.length} words)` };
 	}
 
 	throw new Error(`Wordlist not found: ${spec}`);

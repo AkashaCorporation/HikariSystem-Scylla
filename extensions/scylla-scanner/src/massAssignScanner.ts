@@ -74,6 +74,12 @@ interface ScanOptions {
 	cookie?: string;
 }
 
+/** Extract the lowercased host from a URL (or bare host) for per-host header caching. */
+function hostOf(url: string): string {
+	try { return new URL(url.includes('://') ? url : `http://${url}`).hostname.toLowerCase(); }
+	catch { return url.toLowerCase(); }
+}
+
 export async function scanMassAssign(
 	target: string,
 	crawlResultFile: string | undefined,
@@ -85,8 +91,19 @@ export async function scanMassAssign(
 	const categories: MassAssignCategory[] = options?.categories ??
 		['role-escalation', 'financial', 'verification-bypass'];
 
-	// Get auth headers (scoped to the target host so cookies don't leak cross-host)
-	const authHeaders = await getAuthHeaders(options?.profileName, options?.headers, options?.cookie, target);
+	// Resolve auth headers PER REQUEST HOST (not once per target) so cookies stay
+	// domain-scoped: a crawl can yield endpoints on different hosts, and reusing a single
+	// target-scoped header map would re-leak cookies cross-host. profileName/headers/cookie
+	// are constant per scan, so the cache is keyed by host only.
+	const authHeaderCache = new Map<string, Record<string, string>>();
+	const resolveAuthHeaders = async (url: string): Promise<Record<string, string>> => {
+		const key = hostOf(url);
+		const cached = authHeaderCache.get(key);
+		if (cached) { return cached; }
+		const headers = await getAuthHeaders(options?.profileName, options?.headers, options?.cookie, url);
+		authHeaderCache.set(key, headers);
+		return headers;
+	};
 
 	// Find POST/PUT/PATCH endpoints
 	const endpoints = crawlResultFile
@@ -111,7 +128,7 @@ export async function scanMassAssign(
 						JSON.stringify(originalBody),
 						{
 							'content-type': 'application/json',
-							...authHeaders,
+							...(await resolveAuthHeaders(endpoint.url)),
 						},
 						options?.timeoutMs,
 					);
@@ -126,7 +143,7 @@ export async function scanMassAssign(
 						JSON.stringify(modifiedBody),
 						{
 							'content-type': 'application/json',
-							...authHeaders,
+							...(await resolveAuthHeaders(endpoint.url)),
 						},
 						options?.timeoutMs,
 					);
@@ -190,7 +207,7 @@ export async function scanMassAssign(
 					endpoint.method,
 					endpoint.url,
 					JSON.stringify(modifiedBody),
-					{ 'content-type': 'application/json', ...authHeaders },
+					{ 'content-type': 'application/json', ...(await resolveAuthHeaders(endpoint.url)) },
 					options?.timeoutMs,
 				);
 

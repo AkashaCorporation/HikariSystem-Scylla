@@ -67,7 +67,15 @@ export interface CrawlResult {
 	parameters: DiscoveredParameter[];
 	jsRoutes: string[];
 	externalLinks: string[];
+	redirects: CrawlRedirect[];
 	elapsedMs: number;
+}
+
+export interface CrawlRedirect {
+	from: string;
+	to: string;
+	statusCode: number;
+	inScope: boolean;
 }
 
 export interface DiscoveredEndpoint {

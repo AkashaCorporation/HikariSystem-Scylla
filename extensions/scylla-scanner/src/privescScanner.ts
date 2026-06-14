@@ -28,6 +28,12 @@ interface ScanOptions {
 	headers?: Record<string, string>;
 }
 
+/** Extract the lowercased host from a URL (or bare host) for per-host header caching. */
+function hostOf(url: string): string {
+	try { return new URL(url.includes('://') ? url : `http://${url}`).hostname.toLowerCase(); }
+	catch { return url.toLowerCase(); }
+}
+
 /**
  * List of URL patterns that typically indicate admin or privileged endpoints.
  * Used to prioritize which discovered URLs to test.
@@ -66,12 +72,29 @@ export async function scanPrivesc(
 	const startTime = Date.now();
 	const findings: PrivescFinding[] = [];
 
-	// Step 1: Get auth headers for both profiles (scoped to the target host so
-	// cookies don't leak cross-host and pollute the access-control comparison).
-	const highPrivHeaders = await getProfileHeaders(highPrivProfile, target);
-	const lowPrivHeaders = await getProfileHeaders(lowPrivProfile, target);
+	// Step 1: Resolve auth headers PER REQUEST HOST (not once per target) so cookies
+	// stay domain-scoped: a crawl can yield endpoints on different hosts, and reusing a
+	// single target-scoped header map would re-leak cookies cross-host and pollute the
+	// access-control comparison. Headers are cached by profile+host to avoid re-querying
+	// the auth extension per request.
+	const headerCache = new Map<string, Record<string, string>>();
+	const resolveHeaders = async (profileName: string, url: string): Promise<Record<string, string>> => {
+		const key = `${profileName}\n${hostOf(url)}`;
+		const cached = headerCache.get(key);
+		if (cached) { return cached; }
+		const headers = await getProfileHeaders(profileName, url);
+		const resolved = headers ?? {};
+		headerCache.set(key, resolved);
+		return resolved;
+	};
 
-	if (!highPrivHeaders || !lowPrivHeaders) {
+	// Initial resolve against the target host: seeds the cache for the target's host AND
+	// validates auth is present for both profiles. getProfileHeaders returns undefined
+	// only on exception, so an undefined here means auth is unavailable — bail as before.
+	const initialHighPrivHeaders = await getProfileHeaders(highPrivProfile, target);
+	const initialLowPrivHeaders = await getProfileHeaders(lowPrivProfile, target);
+
+	if (!initialHighPrivHeaders || !initialLowPrivHeaders) {
 		return {
 			generatedAt: new Date().toISOString(),
 			target,
@@ -80,6 +103,11 @@ export async function scanPrivesc(
 			elapsedMs: Date.now() - startTime,
 		};
 	}
+
+	// Seed the cache with the validated target-host headers so the host's first request
+	// reuses them instead of re-querying the auth extension.
+	headerCache.set(`${highPrivProfile}\n${hostOf(target)}`, initialHighPrivHeaders);
+	headerCache.set(`${lowPrivProfile}\n${hostOf(target)}`, initialLowPrivHeaders);
 
 	// Step 2: Load endpoints (from crawl or single target)
 	const allEndpoints = crawlResultFile
@@ -95,11 +123,11 @@ export async function scanPrivesc(
 	// Step 4: For each admin endpoint, test with low-priv profile
 	for (const endpoint of endpointsToTest) {
 		try {
-			// Request as admin
+			// Request as admin (headers scoped to this endpoint's host)
 			const adminResponse = await performHttpRequest(
 				'GET',
 				endpoint,
-				{ ...options?.headers, ...highPrivHeaders },
+				{ ...options?.headers, ...(await resolveHeaders(highPrivProfile, endpoint)) },
 				options?.timeoutMs,
 			);
 
@@ -110,11 +138,11 @@ export async function scanPrivesc(
 				continue;
 			}
 
-			// Request as low-priv user
+			// Request as low-priv user (headers scoped to this endpoint's host)
 			const lowPrivResponse = await performHttpRequest(
 				'GET',
 				endpoint,
-				{ ...options?.headers, ...lowPrivHeaders },
+				{ ...options?.headers, ...(await resolveHeaders(lowPrivProfile, endpoint)) },
 				options?.timeoutMs,
 			);
 
@@ -164,7 +192,7 @@ export async function scanPrivesc(
 				const lowPrivResponse = await performHttpRequest(
 					method,
 					endpoint,
-					{ ...options?.headers, ...lowPrivHeaders, 'content-type': 'application/json' },
+					{ ...options?.headers, ...(await resolveHeaders(lowPrivProfile, endpoint)), 'content-type': 'application/json' },
 					options?.timeoutMs,
 				);
 
