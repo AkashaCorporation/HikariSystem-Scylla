@@ -46,6 +46,15 @@ const COMMAND_CAPABILITIES = new Map<string, CommandCapability>([
 	['scylla.findings.createHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	['scylla.findings.appendEvidenceHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	['scylla.findings.createFromHttpHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	// scylla-engagements
+	['scylla.engagement.createHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.getHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.listHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.setActiveHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.addIdentityHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.registerResourceHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.recordTransactionHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.authorizationMatrixHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	// scylla-reporting
 	['scylla.reporting.generateHeadless', { headless: true, defaultTimeoutMs: 60_000, validateOutput: true }],
 	// hexcore utilities (reusable)
