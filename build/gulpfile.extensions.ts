@@ -81,6 +81,7 @@ const compilations = [
 
 	// Scylla extensions
 	'extensions/scylla-auth/tsconfig.json',
+	'extensions/scylla-engagements/tsconfig.json',
 	'extensions/scylla-export/tsconfig.json',
 	'extensions/scylla-findings/tsconfig.json',
 	'extensions/scylla-http/tsconfig.json',
@@ -130,7 +131,6 @@ const tasks = compilations.map(function (tsconfigFile) {
 						if (err && !err.__reporter__) {
 							reporter(err);
 						}
-					}
 				}))
 				.pipe(tsFilter)
 				.pipe(util.loadSourcemaps())
