@@ -79,19 +79,11 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 0
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
-      - name: Install retained SQLite native utility
-        shell: pwsh
-        run: |
-          $sqlite = "extensions/hexcore-better-sqlite3"
-          if (Test-Path "$sqlite/package.json") {
-            Push-Location $sqlite
-            npm ci
-            Pop-Location
-          } else {
-            Write-Host "hexcore-better-sqlite3 is not present; continuing without SQLite native utility."
-          }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The Scylla snapshot still contains the legacy HexCore SQLite wrapper,
+      # but IOC storage now treats it as optional and falls back to memory in
+      # auto mode. Do not install/build the stale native wrapper here; it is
+      # intentionally deferred until the 2.0.3+ engine is synchronized from
+      # HikariSystem-HexCore.
 
       - name: Compile Scylla extensions
         shell: pwsh
@@ -246,5 +238,6 @@ jobs:
           - Shared preflight: attempted
           - Artifact: Scylla-win32-x64.zip
           - Scylla extension compile: attempted
+          - IOC SQLite backend: deferred; auto mode uses memory fallback
           - Code-OSS package verification: attempted
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY
