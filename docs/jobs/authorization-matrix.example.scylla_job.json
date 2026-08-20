@@ -23,7 +23,6 @@
     {
       "cmd": "scylla.engagement.createHeadless",
       "args": {
-        "id": "authorization-example",
         "name": "Authorization Matrix Example",
         "description": "Explicit cross-user authorization expectations for two owned resources.",
         "targets": ["${target}"],
