@@ -36,6 +36,9 @@ jobs:
           node --version
           npm --version
 
+      - name: Scylla preflight
+        run: node scripts/verify-scylla-preflight.cjs
+
       - name: Compile all Scylla extensions
         shell: bash
         run: |
@@ -76,64 +79,6 @@ jobs:
 
           echo "Compiled ${built} Scylla extensions."
 
-      - name: Validate Scylla job examples
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-
-          files=(docs/jobs/*.scylla_job.json)
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "No Scylla job examples found."
-            exit 1
-          fi
-
-          node - "${files[@]}" <<'NODE'
-          const fs = require('fs');
-          const files = process.argv.slice(2);
-          let failed = false;
-
-          for (const file of files) {
-            try {
-              const job = JSON.parse(fs.readFileSync(file, 'utf8'));
-              if (typeof job.target !== 'string' || !job.target) throw new Error('missing target');
-              if (typeof job.outDir !== 'string' || !job.outDir) throw new Error('missing outDir');
-              if (!Array.isArray(job.steps) || job.steps.length === 0) throw new Error('missing steps');
-              for (const [index, step] of job.steps.entries()) {
-                if (!step || typeof step.cmd !== 'string' || !step.cmd) {
-                  throw new Error(`step ${index + 1} is missing cmd`);
-                }
-              }
-              console.log(`OK ${file} (${job.steps.length} steps)`);
-            } catch (error) {
-              failed = true;
-              console.error(`FAIL ${file}: ${error.message}`);
-            }
-          }
-
-          if (failed) process.exit(1);
-          NODE
-
-      - name: Verify Engagement commands are job-capable
-        shell: bash
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('extensions/scylla-engagements/package.json', 'utf8'));
-          const runner = fs.readFileSync('extensions/scylla-jobs/src/pipelineRunner.ts', 'utf8');
-          const commands = (pkg.contributes?.commands ?? []).map(x => x.command).filter(Boolean);
-          const missing = commands.filter(command => !runner.includes(`['${command}'`));
-
-          if (missing.length) {
-            console.error('Engagement commands missing from Scylla Jobs capability registry:');
-            for (const command of missing) console.error(` - ${command}`);
-            process.exit(1);
-          }
-
-          console.log(`All ${commands.length} Scylla Engagement commands are registered in Scylla Jobs.`);
-          NODE
-
       - name: Build summary
         if: always()
         shell: bash
@@ -142,7 +87,6 @@ jobs:
             echo "## Scylla CI"
             echo
             echo "- Node: 22.21.1"
+            echo "- Shared preflight: attempted"
             echo "- Scylla extension compilation: attempted"
-            echo "- Job example validation: attempted"
-            echo "- Engagement → Jobs command coverage: attempted"
           } >> "$GITHUB_STEP_SUMMARY"
