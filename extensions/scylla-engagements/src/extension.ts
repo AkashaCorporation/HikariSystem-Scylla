@@ -132,7 +132,10 @@ export function activate(context: vscode.ExtensionContext): void {
 				{
 					url,
 					method,
-					headers: { ...authHeaders, ...(arg.headers ?? {}) },
+					// Custom test headers are allowed, but identity-derived auth wins so
+					// the persisted transaction cannot claim one actor while using another
+					// actor's Cookie/Authorization header.
+					headers: { ...(arg.headers ?? {}), ...authHeaders },
 					body: arg.body,
 					timeoutMs: arg.timeoutMs,
 					followRedirects: arg.followRedirects,
