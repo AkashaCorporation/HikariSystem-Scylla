@@ -18,6 +18,10 @@ env:
   npm_config_maxsockets: 8
   npm_config_loglevel: warn
 
+concurrency:
+  group: scylla-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-scylla-extensions:
     name: Compile Scylla Extensions
