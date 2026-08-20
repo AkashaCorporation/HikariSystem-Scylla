@@ -5,6 +5,7 @@
 
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
+import { importScannerResult, isScannerImportOptions, type ScannerImportOptions } from './scannerImport';
 import { engagementStore } from './store';
 import type {
 	AddIdentityOptions,
@@ -65,12 +66,18 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 			return engagementStore.registerResource(arg);
 		}),
-		vscode.commands.registerCommand('scylla.engagement.recordTransactionHeadless', (arg?: RecordTransactionOptions) => {
-			if (!arg) {
-				throw new Error('scylla.engagement.recordTransactionHeadless requires transaction options.');
-			}
-			return engagementStore.recordTransaction(arg);
-		}),
+		vscode.commands.registerCommand(
+			'scylla.engagement.recordTransactionHeadless',
+			(arg?: RecordTransactionOptions | ScannerImportOptions) => {
+				if (!arg) {
+					throw new Error('scylla.engagement.recordTransactionHeadless requires transaction or scanner-import options.');
+				}
+				if (isScannerImportOptions(arg)) {
+					return importScannerResult(arg);
+				}
+				return engagementStore.recordTransaction(arg);
+			},
+		),
 		vscode.commands.registerCommand('scylla.engagement.probeHeadless', async (arg?: ProbeOptions): Promise<ProbeResult> => {
 			if (!arg?.identityId) {
 				throw new Error('scylla.engagement.probeHeadless requires "identityId".');
