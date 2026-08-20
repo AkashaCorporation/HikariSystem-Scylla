@@ -67,13 +67,16 @@ jobs:
         run: |
           Push-Location build
           npm ci
+          if ($LASTEXITCODE -ne 0) { throw "build/npm ci failed with exit code $LASTEXITCODE" }
           Pop-Location
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Bootstrap Code-OSS and local extensions
         shell: pwsh
-        run: npm ci
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "root npm ci failed with exit code $LASTEXITCODE" }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_SKIP_BINARY_DOWNLOAD: 0
@@ -101,13 +104,17 @@ jobs:
             try {
               if (Test-Path "package-lock.json") {
                 npm ci --ignore-scripts
+                if ($LASTEXITCODE -ne 0) { throw "npm ci failed for $($entry.Name) with exit code $LASTEXITCODE" }
               } else {
                 npm install --ignore-scripts
+                if ($LASTEXITCODE -ne 0) { throw "npm install failed for $($entry.Name) with exit code $LASTEXITCODE" }
               }
 
               $compile = node -p "Boolean(require('./package.json').scripts?.compile)"
+              if ($LASTEXITCODE -ne 0) { throw "Could not inspect compile script for $($entry.Name)" }
               if ($compile.Trim() -eq "true") {
                 npm run compile
+                if ($LASTEXITCODE -ne 0) { throw "TypeScript compile failed for $($entry.Name) with exit code $LASTEXITCODE" }
                 $built++
               } else {
                 Write-Host "No compile script; manifest/assets-only extension."
@@ -149,12 +156,16 @@ jobs:
             try {
               if (Test-Path "package-lock.json") {
                 npm ci --ignore-scripts
+                if ($LASTEXITCODE -ne 0) { throw "npm ci failed for $name with exit code $LASTEXITCODE" }
               } else {
                 npm install --ignore-scripts
+                if ($LASTEXITCODE -ne 0) { throw "npm install failed for $name with exit code $LASTEXITCODE" }
               }
               $compile = node -p "Boolean(require('./package.json').scripts?.compile)"
+              if ($LASTEXITCODE -ne 0) { throw "Could not inspect compile script for $name" }
               if ($compile.Trim() -eq "true") {
                 npm run compile
+                if ($LASTEXITCODE -ne 0) { throw "TypeScript compile failed for $name with exit code $LASTEXITCODE" }
               }
             } finally {
               Pop-Location
@@ -164,7 +175,12 @@ jobs:
 
       - name: Build Scylla Code-OSS
         shell: pwsh
-        run: npm run gulp vscode-win32-x64-min
+        run: |
+          # Node 22.21's native TypeScript stripping rejects an upstream-style
+          # gulpfile.extensions.ts construct that tsx/esbuild handles correctly.
+          # Run gulp under tsx so the Code-OSS build uses a real TS loader.
+          tsx ./node_modules/gulp/bin/gulp.js vscode-win32-x64-min
+          if ($LASTEXITCODE -ne 0) { throw "Scylla Code-OSS build failed with exit code $LASTEXITCODE" }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -237,7 +253,8 @@ jobs:
           - Node: 22.21.1
           - Shared preflight: attempted
           - Artifact: Scylla-win32-x64.zip
-          - Scylla extension compile: attempted
+          - Scylla extension compile: enforced
           - IOC SQLite backend: deferred; auto mode uses memory fallback
+          - Code-OSS TypeScript loader: tsx
           - Code-OSS package verification: attempted
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY
