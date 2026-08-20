@@ -23,7 +23,6 @@
     {
       "cmd": "scylla.engagement.createHeadless",
       "args": {
-        "id": "idor-import-example",
         "name": "IDOR Scanner Import Example",
         "description": "Run an ownership-aware IDOR candidate scan and import its evidence into an engagement.",
         "targets": ["${target}"],
