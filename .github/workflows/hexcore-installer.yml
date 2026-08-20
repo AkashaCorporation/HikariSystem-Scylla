@@ -24,7 +24,9 @@ jobs:
   build-windows:
     name: Build Scylla Windows ZIP
     runs-on: windows-2022
-    timeout-minutes: 90
+    # HexCore/Code-OSS Windows packaging can legitimately take well over an
+    # hour even when native .node binaries are already available. Keep the
+    # GitHub-hosted runner default job window instead of an artificial 90m cap.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -173,13 +175,19 @@ jobs:
             }
           }
 
+      - name: Patch vsce npm resolver for local deps
+        shell: pwsh
+        run: |
+          node scripts/patch-vsce-npm.js
+          if ($LASTEXITCODE -ne 0) { throw "vsce npm resolver patch failed with exit code $LASTEXITCODE" }
+
       - name: Build Scylla Code-OSS
         shell: pwsh
         run: |
-          # Node 22.21's native TypeScript stripping rejects an upstream-style
-          # gulpfile.extensions.ts construct that tsx/esbuild handles correctly.
-          # Run gulp under tsx so the Code-OSS build uses a real TS loader.
-          tsx ./node_modules/gulp/bin/gulp.js vscode-win32-x64-min
+          # Match the mature HexCore packaging path. With the restored upstream
+          # extension gulpfile syntax, Node 22.21.1 can load the TypeScript build
+          # files through the same npm gulp entrypoint used by HexCore.
+          npm run gulp vscode-win32-x64-min
           if ($LASTEXITCODE -ne 0) { throw "Scylla Code-OSS build failed with exit code $LASTEXITCODE" }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -255,6 +263,7 @@ jobs:
           - Artifact: Scylla-win32-x64.zip
           - Scylla extension compile: enforced
           - IOC SQLite backend: deferred; auto mode uses memory fallback
-          - Code-OSS TypeScript loader: tsx
+          - vsce local-dependency patch: attempted
+          - Code-OSS packaging path: aligned with HexCore
           - Code-OSS package verification: attempted
           "@ | Add-Content $env:GITHUB_STEP_SUMMARY
