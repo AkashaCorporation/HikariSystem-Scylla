@@ -40,6 +40,10 @@ function assertIncludes(text, needle, label) {
 	}
 }
 
+function escapeRegex(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function verifyProduct() {
 	const product = readJson('product.json');
 	if (!product) { return; }
@@ -99,7 +103,10 @@ function verifyEngagementCommands() {
 	}
 
 	for (const command of contributed) {
-		assertIncludes(source, `registerCommand('${command}'`, 'extensions/scylla-engagements/src/extension.ts');
+		const registration = new RegExp(`registerCommand\\(\\s*['"]${escapeRegex(command)}['"]`);
+		if (!registration.test(source)) {
+			errors.push(`scylla-engagements source does not register command: ${command}`);
+		}
 		if (!jobCommands.has(command)) {
 			errors.push(`Scylla Jobs does not register engagement command: ${command}`);
 		}
@@ -187,6 +194,7 @@ function verifySafetyContracts() {
 	assertIncludes(engagementSource, 'SAFE_PROBE_METHODS', 'scylla-engagements probe');
 	assertIncludes(engagementSource, 'allowStateChange', 'scylla-engagements probe');
 	assertIncludes(engagementSource, 'Refusing to downgrade the probe to anonymous.', 'scylla-engagements auth provenance');
+	assertIncludes(engagementSource, 'resource?.canonicalUrl?.trim() || arg.url?.trim()', 'scylla-engagements resource URL precedence');
 	assertIncludes(privesc, 'No POST, PUT, PATCH, or DELETE request was issued by this scanner.', 'scylla-privesc safety contract');
 	assertIncludes(httpArtifacts, 'redactRequestHeaders', 'scylla-http evidence redaction');
 	assertIncludes(httpArtifacts, 'redactResponseHeaders', 'scylla-http evidence redaction');
