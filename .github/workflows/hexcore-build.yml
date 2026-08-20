@@ -1,23 +1,26 @@
-name: Scylla Build (Transition)
+name: Scylla CI
 
 on:
   push:
     branches:
       - main
+      - "scylla/**"
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
+  VSCODE_SKIP_NODE_VERSION_CHECK: 1
   npm_config_maxsockets: 8
   npm_config_loglevel: warn
 
 jobs:
-  build-extensions:
-    name: Build Scylla Transition Extensions
+  build-scylla-extensions:
+    name: Compile Scylla Extensions
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -26,146 +29,120 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "18"
-          cache: "npm"
-          cache-dependency-path: |
-            extensions/hexcore-hexviewer/package-lock.json
-            extensions/hexcore-peanalyzer/package-lock.json
-            extensions/hexcore-hashcalc/package-lock.json
-            extensions/hexcore-strings/package-lock.json
-            extensions/hexcore-entropy/package-lock.json
-            extensions/hexcore-base64/package-lock.json
-            extensions/hexcore-filetype/package-lock.json
-            extensions/hexcore-ioc/package-lock.json
-            extensions/hexcore-yara/package-lock.json
-            extensions/hexcore-elfanalyzer/package-lock.json
-            extensions/hexcore-report-composer/package-lock.json
-            extensions/hexcore-minidump/package-lock.json
+          node-version: "22.21.1"
 
-      - name: Scylla Transition Preflight (Command/Build Coverage)
-        run: node scripts/verify-hexcore-preflight.cjs
-
-      - name: Raise File Descriptor Limit
-        run: ulimit -n 65535 || true
-
-      - name: Build Hex Viewer (Legacy)
-        working-directory: extensions/hexcore-hexviewer
+      - name: Environment
         run: |
-          npm ci
-          npm run compile
+          node --version
+          npm --version
 
-      - name: Build PE Analyzer (Legacy)
-        working-directory: extensions/hexcore-peanalyzer
+      - name: Compile all Scylla extensions
+        shell: bash
         run: |
-          npm ci
-          npm run compile
+          set -euo pipefail
+          shopt -s nullglob
 
-      - name: Build Hash Calculator (Legacy)
-        working-directory: extensions/hexcore-hashcalc
+          built=0
+          for dir in extensions/scylla-*; do
+            if [[ ! -f "$dir/package.json" ]]; then
+              continue
+            fi
+
+            echo "::group::${dir}"
+            pushd "$dir" >/dev/null
+
+            if [[ -f package-lock.json ]]; then
+              npm ci --ignore-scripts
+            else
+              echo "::warning file=${dir}/package.json::No package-lock.json found; using npm install for CI fallback."
+              npm install --ignore-scripts
+            fi
+
+            if node -e "const p=require('./package.json'); process.exit(p.scripts?.compile ? 0 : 1)"; then
+              npm run compile
+              built=$((built + 1))
+            else
+              echo "No compile script; manifest-only extension."
+            fi
+
+            popd >/dev/null
+            echo "::endgroup::"
+          done
+
+          if [[ "$built" -eq 0 ]]; then
+            echo "No Scylla TypeScript extensions were compiled."
+            exit 1
+          fi
+
+          echo "Compiled ${built} Scylla extensions."
+
+      - name: Validate Scylla job examples
+        shell: bash
         run: |
-          npm ci
-          npm run compile
+          set -euo pipefail
+          shopt -s nullglob
 
-      - name: Build Strings Extractor (Legacy)
-        working-directory: extensions/hexcore-strings
+          files=(docs/jobs/*.scylla_job.json)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No Scylla job examples found."
+            exit 1
+          fi
+
+          node - "${files[@]}" <<'NODE'
+          const fs = require('fs');
+          const files = process.argv.slice(2);
+          let failed = false;
+
+          for (const file of files) {
+            try {
+              const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+              if (typeof job.target !== 'string' || !job.target) throw new Error('missing target');
+              if (typeof job.outDir !== 'string' || !job.outDir) throw new Error('missing outDir');
+              if (!Array.isArray(job.steps) || job.steps.length === 0) throw new Error('missing steps');
+              for (const [index, step] of job.steps.entries()) {
+                if (!step || typeof step.cmd !== 'string' || !step.cmd) {
+                  throw new Error(`step ${index + 1} is missing cmd`);
+                }
+              }
+              console.log(`OK ${file} (${job.steps.length} steps)`);
+            } catch (error) {
+              failed = true;
+              console.error(`FAIL ${file}: ${error.message}`);
+            }
+          }
+
+          if (failed) process.exit(1);
+          NODE
+
+      - name: Verify Engagement commands are job-capable
+        shell: bash
         run: |
-          npm ci
-          npm run compile
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('extensions/scylla-engagements/package.json', 'utf8'));
+          const runner = fs.readFileSync('extensions/scylla-jobs/src/pipelineRunner.ts', 'utf8');
+          const commands = (pkg.contributes?.commands ?? []).map(x => x.command).filter(Boolean);
+          const missing = commands.filter(command => !runner.includes(`['${command}'`));
 
-      - name: Build Entropy Analyzer (Legacy)
-        working-directory: extensions/hexcore-entropy
+          if (missing.length) {
+            console.error('Engagement commands missing from Scylla Jobs capability registry:');
+            for (const command of missing) console.error(` - ${command}`);
+            process.exit(1);
+          }
+
+          console.log(`All ${commands.length} Scylla Engagement commands are registered in Scylla Jobs.`);
+          NODE
+
+      - name: Build summary
+        if: always()
+        shell: bash
         run: |
-          npm ci
-          npm run compile
-
-      - name: Build Base64 Decoder (Legacy)
-        working-directory: extensions/hexcore-base64
-        run: |
-          npm ci
-          npm run compile
-
-      - name: Build File Type Detector (Legacy)
-        working-directory: extensions/hexcore-filetype
-        run: |
-          npm ci
-          npm run compile
-
-      - name: Build Common Utilities (Legacy)
-        working-directory: extensions/hexcore-common
-        run: |
-          npm ci
-          npm run compile
-
-      - name: Build IOC Extractor (Legacy)
-        working-directory: extensions/hexcore-ioc
-        run: |
-          npm ci --ignore-scripts
-          npm run compile
-
-      - name: Build YARA Scanner (Legacy)
-        working-directory: extensions/hexcore-yara
-        run: |
-          npm ci --ignore-scripts
-          npm run compile
-
-      - name: Build Minidump Parser (Legacy)
-        working-directory: extensions/hexcore-minidump
-        run: |
-          npm ci --ignore-scripts
-          npm run compile
-
-      - name: Build ELF Analyzer (Legacy)
-        working-directory: extensions/hexcore-elfanalyzer
-        run: |
-          npm ci
-          npm run compile
-
-      - name: Build Report Composer (Legacy)
-        working-directory: extensions/hexcore-report-composer
-        run: |
-          npm ci
-          npm run compile
-
-      - name: Build Summary
-        run: |
-          echo "## Scylla Transition Legacy Extension Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Extension | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-hexviewer | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-peanalyzer | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-hashcalc | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-strings | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-entropy | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-base64 | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-filetype | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-common | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-ioc | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-yara | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-minidump | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-elfanalyzer | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-          echo "| hexcore-report-composer | ✅ Built |" >> $GITHUB_STEP_SUMMARY
-
-  lint:
-    name: Lint TypeScript
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "18"
-
-      - name: Check TypeScript syntax (Hex Viewer Legacy)
-        working-directory: extensions/hexcore-hexviewer
-        run: |
-          npm ci
-          npx tsc --noEmit || true
-
-      - name: Check TypeScript syntax (PE Analyzer Legacy)
-        working-directory: extensions/hexcore-peanalyzer
-        run: |
-          npm ci
-          npx tsc --noEmit || true
+          {
+            echo "## Scylla CI"
+            echo
+            echo "- Node: 22.21.1"
+            echo "- Scylla extension compilation: attempted"
+            echo "- Job example validation: attempted"
+            echo "- Engagement → Jobs command coverage: attempted"
+          } >> "$GITHUB_STEP_SUMMARY"
