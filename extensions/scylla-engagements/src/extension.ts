@@ -107,9 +107,12 @@ export function activate(context: vscode.ExtensionContext): void {
 				);
 			}
 
-			const url = arg.url?.trim() || resource?.canonicalUrl?.trim();
+			// Scylla Jobs injects the job target as a generic `url` when a step does
+			// not provide one. When a resource is present, its canonical URL is the
+			// authoritative operation target and must win over that injected fallback.
+			const url = resource?.canonicalUrl?.trim() || arg.url?.trim();
 			if (!url) {
-				throw new Error('Probe requires "url" or a resource with canonicalUrl.');
+				throw new Error('Probe requires a resource with canonicalUrl or an explicit "url".');
 			}
 
 			let authHeaders: Record<string, string> = {};
