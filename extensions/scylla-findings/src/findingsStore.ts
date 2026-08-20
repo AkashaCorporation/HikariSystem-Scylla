@@ -9,11 +9,28 @@ import * as vscode from 'vscode';
 
 export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type FindingStatus = 'open' | 'validated' | 'in-progress' | 'fixed' | 'accepted';
+export type FindingClassification = 'observation' | 'candidate' | 'validated';
+
+export interface FindingSource {
+	scanner?: string;
+	command?: string;
+	strategy?: string;
+}
+
+export interface FindingActors {
+	attackerProfile?: string;
+	baselineProfile?: string;
+	resourceOwnerProfile?: string;
+}
 
 export interface CreateFindingCommandOptions {
 	title?: string;
 	severity?: FindingSeverity;
 	status?: FindingStatus;
+	classification?: FindingClassification;
+	confidence?: number;
+	source?: FindingSource;
+	actors?: FindingActors;
 	target?: string;
 	summary?: string;
 	reproduction?: string;
@@ -36,6 +53,8 @@ export interface CreateFromHttpCommandOptions {
 	title?: string;
 	severity?: FindingSeverity;
 	status?: FindingStatus;
+	classification?: FindingClassification;
+	confidence?: number;
 	target?: string;
 	summary?: string;
 	note?: string;
@@ -48,6 +67,10 @@ export interface FindingDocumentData {
 	title: string;
 	severity: FindingSeverity;
 	status: FindingStatus;
+	classification: FindingClassification;
+	confidence?: number;
+	source?: FindingSource;
+	actors?: FindingActors;
 	target: string;
 	createdAt: string;
 	updatedAt: string;
@@ -92,6 +115,7 @@ interface HttpResponseArtifact {
 const FINDINGS_DIR = path.join('.scylla', 'findings');
 const DEFAULT_STATUS: FindingStatus = 'open';
 const DEFAULT_SEVERITY: FindingSeverity = 'medium';
+const DEFAULT_CLASSIFICATION: FindingClassification = 'candidate';
 
 export function createFinding(options?: CreateFindingCommandOptions): FindingCreateResult {
 	const normalized = normalizeFindingData(options);
@@ -143,10 +167,18 @@ export function createFindingFromHttp(options?: CreateFromHttpCommandOptions): F
 	const summary = options.summary ?? buildHttpFindingSummary(responseArtifact);
 	const evidence = buildHttpEvidence(responseArtifact, options.note);
 
+	// An HTTP response by itself is an observation. Status codes do not encode
+	// vulnerability impact, so never infer High/Medium severity from 4xx/5xx here.
 	return createFinding({
 		title,
-		severity: options.severity ?? deriveSeverityFromHttp(responseArtifact.response.statusCode),
+		severity: options.severity ?? 'info',
 		status: options.status ?? DEFAULT_STATUS,
+		classification: options.classification ?? 'observation',
+		confidence: options.confidence,
+		source: {
+			command: 'scylla.findings.createFromHttpHeadless',
+			scanner: 'scylla-http'
+		},
 		target,
 		summary,
 		reproduction: buildHttpReproduction(responseArtifact),
@@ -177,6 +209,8 @@ function normalizeFindingData(options?: CreateFindingCommandOptions): FindingDoc
 
 	const severity = normalizeSeverity(options?.severity);
 	const status = normalizeStatus(options?.status);
+	const classification = normalizeClassification(options?.classification);
+	const confidence = normalizeConfidence(options?.confidence);
 	const target = options?.target?.trim() || 'unspecified-target';
 	const summary = options?.summary?.trim() || 'Pending analyst summary.';
 	const reproduction = options?.reproduction?.trim() || 'Pending reproduction steps.';
@@ -187,12 +221,18 @@ function normalizeFindingData(options?: CreateFindingCommandOptions): FindingDoc
 	const tags = Array.isArray(options?.tags)
 		? options.tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0).map(tag => tag.trim())
 		: [];
+	const source = normalizeSource(options?.source);
+	const actors = normalizeActors(options?.actors);
 
 	return {
 		id: `${buildTimestampPrefix()}-${sanitizeFileName(title)}`,
 		title,
 		severity,
 		status,
+		classification,
+		confidence,
+		source,
+		actors,
 		target,
 		createdAt: now,
 		updatedAt: now,
@@ -217,6 +257,42 @@ function normalizeStatus(status?: FindingStatus): FindingStatus {
 	}
 }
 
+function normalizeClassification(classification?: FindingClassification): FindingClassification {
+	switch (classification) {
+		case 'observation':
+		case 'candidate':
+		case 'validated':
+			return classification;
+		default:
+			return DEFAULT_CLASSIFICATION;
+	}
+}
+
+function normalizeConfidence(confidence?: number): number | undefined {
+	if (!Number.isFinite(confidence)) {
+		return undefined;
+	}
+	return Math.min(1, Math.max(0, confidence!));
+}
+
+function normalizeSource(source?: FindingSource): FindingSource | undefined {
+	if (!source) { return undefined; }
+	const normalized: FindingSource = {};
+	if (source.scanner?.trim()) { normalized.scanner = source.scanner.trim(); }
+	if (source.command?.trim()) { normalized.command = source.command.trim(); }
+	if (source.strategy?.trim()) { normalized.strategy = source.strategy.trim(); }
+	return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeActors(actors?: FindingActors): FindingActors | undefined {
+	if (!actors) { return undefined; }
+	const normalized: FindingActors = {};
+	if (actors.attackerProfile?.trim()) { normalized.attackerProfile = actors.attackerProfile.trim(); }
+	if (actors.baselineProfile?.trim()) { normalized.baselineProfile = actors.baselineProfile.trim(); }
+	if (actors.resourceOwnerProfile?.trim()) { normalized.resourceOwnerProfile = actors.resourceOwnerProfile.trim(); }
+	return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 function renderFinding(finding: FindingDocumentData): string {
 	const lines: string[] = [];
 	lines.push('---');
@@ -224,7 +300,17 @@ function renderFinding(finding: FindingDocumentData): string {
 	lines.push(`title: ${escapeFrontMatter(finding.title)}`);
 	lines.push(`severity: ${finding.severity}`);
 	lines.push(`status: ${finding.status}`);
+	lines.push(`classification: ${finding.classification}`);
+	if (finding.confidence !== undefined) {
+		lines.push(`confidence: ${finding.confidence.toFixed(3)}`);
+	}
 	lines.push(`target: ${escapeFrontMatter(finding.target)}`);
+	if (finding.source?.scanner) { lines.push(`sourceScanner: ${escapeFrontMatter(finding.source.scanner)}`); }
+	if (finding.source?.command) { lines.push(`sourceCommand: ${escapeFrontMatter(finding.source.command)}`); }
+	if (finding.source?.strategy) { lines.push(`sourceStrategy: ${escapeFrontMatter(finding.source.strategy)}`); }
+	if (finding.actors?.attackerProfile) { lines.push(`attackerProfile: ${escapeFrontMatter(finding.actors.attackerProfile)}`); }
+	if (finding.actors?.baselineProfile) { lines.push(`baselineProfile: ${escapeFrontMatter(finding.actors.baselineProfile)}`); }
+	if (finding.actors?.resourceOwnerProfile) { lines.push(`resourceOwnerProfile: ${escapeFrontMatter(finding.actors.resourceOwnerProfile)}`); }
 	lines.push(`createdAt: ${finding.createdAt}`);
 	lines.push(`updatedAt: ${finding.updatedAt}`);
 	lines.push('tags:');
@@ -243,6 +329,21 @@ function renderFinding(finding: FindingDocumentData): string {
 	lines.push('');
 	lines.push(finding.summary);
 	lines.push('');
+
+	if (finding.source || finding.actors || finding.confidence !== undefined) {
+		lines.push('## Provenance');
+		lines.push('');
+		lines.push(`- Classification: ${finding.classification}`);
+		if (finding.confidence !== undefined) { lines.push(`- Confidence: ${Math.round(finding.confidence * 100)}%`); }
+		if (finding.source?.scanner) { lines.push(`- Scanner: ${finding.source.scanner}`); }
+		if (finding.source?.command) { lines.push(`- Command: ${finding.source.command}`); }
+		if (finding.source?.strategy) { lines.push(`- Strategy: ${finding.source.strategy}`); }
+		if (finding.actors?.attackerProfile) { lines.push(`- Attacker profile: ${finding.actors.attackerProfile}`); }
+		if (finding.actors?.baselineProfile) { lines.push(`- Baseline profile: ${finding.actors.baselineProfile}`); }
+		if (finding.actors?.resourceOwnerProfile) { lines.push(`- Resource owner profile: ${finding.actors.resourceOwnerProfile}`); }
+		lines.push('');
+	}
+
 	lines.push('## Reproduction');
 	lines.push('');
 	lines.push(finding.reproduction);
@@ -335,16 +436,6 @@ function buildHttpEvidence(artifact: HttpResponseArtifact, note?: string): strin
 		evidence.push(`Analyst Note: ${note.trim()}`);
 	}
 	return evidence;
-}
-
-function deriveSeverityFromHttp(statusCode: number): FindingSeverity {
-	if (statusCode >= 500) {
-		return 'high';
-	}
-	if (statusCode >= 400) {
-		return 'medium';
-	}
-	return DEFAULT_SEVERITY;
 }
 
 function trimInline(value: string, limit: number): string {
