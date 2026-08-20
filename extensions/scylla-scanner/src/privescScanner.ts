@@ -3,29 +3,34 @@
  *  Licensed under the GPLv3 License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { loadTargetsFromCrawl } from './artifacts';
 import type {
 	PrivescFinding,
 	PrivescScanResult,
-	VulnFinding,
 } from './types';
 
 // ---------------------------------------------------------------------------
 // Privilege Escalation Scanner — Vertical Broken Access Control
 // ---------------------------------------------------------------------------
 
-/**
- * Scans for vertical privilege escalation by:
- * 1. Crawling as high-priv profile → collecting admin-only endpoints
- * 2. Replaying each admin-only request with low-priv profile's session
- * 3. If low-priv gets 200 with similar body → vertical privesc
- */
-
 interface ScanOptions {
 	delayMs?: number;
 	timeoutMs?: number;
 	headers?: Record<string, string>;
+}
+
+interface HttpResult {
+	statusCode: number;
+	body: string;
+	headers: Record<string, string>;
+}
+
+interface PrivescAnalysis {
+	candidate: boolean;
+	equivalent: boolean;
+	confidence: number;
 }
 
 /** Extract the lowercased host from a URL (or bare host) for per-host header caching. */
@@ -35,8 +40,9 @@ function hostOf(url: string): string {
 }
 
 /**
- * List of URL patterns that typically indicate admin or privileged endpoints.
- * Used to prioritize which discovered URLs to test.
+ * URL heuristics are discovery hints only. They never establish that an endpoint
+ * is privileged. A finding still requires a high-priv baseline and a low-priv
+ * response that is equivalent enough to that baseline to justify review.
  */
 const ADMIN_PATH_PATTERNS = [
 	/\/admin/i,
@@ -71,161 +77,92 @@ export async function scanPrivesc(
 ): Promise<PrivescScanResult> {
 	const startTime = Date.now();
 	const findings: PrivescFinding[] = [];
-
-	// Step 1: Resolve auth headers PER REQUEST HOST (not once per target) so cookies
-	// stay domain-scoped: a crawl can yield endpoints on different hosts, and reusing a
-	// single target-scoped header map would re-leak cookies cross-host and pollute the
-	// access-control comparison. Headers are cached by profile+host to avoid re-querying
-	// the auth extension per request.
 	const headerCache = new Map<string, Record<string, string>>();
-	const resolveHeaders = async (profileName: string, url: string): Promise<Record<string, string>> => {
+
+	const resolveHeaders = async (profileName: string, url: string): Promise<Record<string, string> | undefined> => {
 		const key = `${profileName}\n${hostOf(url)}`;
 		const cached = headerCache.get(key);
 		if (cached) { return cached; }
 		const headers = await getProfileHeaders(profileName, url);
-		const resolved = headers ?? {};
-		headerCache.set(key, resolved);
-		return resolved;
+		if (!headers) { return undefined; }
+		headerCache.set(key, headers);
+		return headers;
 	};
 
-	// Initial resolve against the target host: seeds the cache for the target's host AND
-	// validates auth is present for both profiles. getProfileHeaders returns undefined
-	// only on exception, so an undefined here means auth is unavailable — bail as before.
-	const initialHighPrivHeaders = await getProfileHeaders(highPrivProfile, target);
-	const initialLowPrivHeaders = await getProfileHeaders(lowPrivProfile, target);
-
-	if (!initialHighPrivHeaders || !initialLowPrivHeaders) {
-		return {
-			generatedAt: new Date().toISOString(),
-			target,
-			adminEndpointsTested: 0,
-			findings: [],
-			elapsedMs: Date.now() - startTime,
-		};
+	// Both identities are mandatory. A missing auth context is not a negative test;
+	// silently replacing it with anonymous headers would corrupt the comparison.
+	const initialHigh = await resolveHeaders(highPrivProfile, target);
+	const initialLow = await resolveHeaders(lowPrivProfile, target);
+	if (!initialHigh || !initialLow) {
+		return emptyResult(target, startTime);
 	}
 
-	// Seed the cache with the validated target-host headers so the host's first request
-	// reuses them instead of re-querying the auth extension.
-	headerCache.set(`${highPrivProfile}\n${hostOf(target)}`, initialHighPrivHeaders);
-	headerCache.set(`${lowPrivProfile}\n${hostOf(target)}`, initialLowPrivHeaders);
+	const allEndpoints = crawlResultFile ? loadEndpointsFromCrawl(crawlResultFile) : [target];
+	const adminLike = allEndpoints.filter(isAdminEndpoint);
+	const endpointsToTest = adminLike.length > 0 ? adminLike : allEndpoints.slice(0, 50);
 
-	// Step 2: Load endpoints (from crawl or single target)
-	const allEndpoints = crawlResultFile
-		? loadEndpointsFromCrawl(crawlResultFile)
-		: [target];
-
-	// Step 3: Filter to admin-like endpoints
-	const adminEndpoints = allEndpoints.filter(url => isAdminEndpoint(url));
-
-	// If no admin endpoints found from heuristics, test all endpoints
-	const endpointsToTest = adminEndpoints.length > 0 ? adminEndpoints : allEndpoints.slice(0, 50);
-
-	// Step 4: For each admin endpoint, test with low-priv profile
+	// P0 safety rule: PrivEsc is observation-only with GET. The previous scanner
+	// automatically fired POST/PUT/DELETE at admin-like routes and treated any 2xx
+	// as critical. State-changing probes will return later behind explicit consent.
 	for (const endpoint of endpointsToTest) {
 		try {
-			// Request as admin (headers scoped to this endpoint's host)
-			const adminResponse = await performHttpRequest(
+			const highHeaders = await resolveHeaders(highPrivProfile, endpoint);
+			const lowHeaders = await resolveHeaders(lowPrivProfile, endpoint);
+			if (!highHeaders || !lowHeaders) { continue; }
+
+			const highResponse = await performHttpRequest(
 				'GET',
 				endpoint,
-				{ ...options?.headers, ...(await resolveHeaders(highPrivProfile, endpoint)) },
+				{ ...options?.headers, ...highHeaders },
 				options?.timeoutMs,
 			);
-
 			if (options?.delayMs) { await sleep(options.delayMs); }
 
-			// Skip if admin doesn't get 200 (endpoint might not exist)
-			if (adminResponse.statusCode < 200 || adminResponse.statusCode >= 400) {
-				continue;
-			}
+			// If the high-priv identity cannot access it, this is not a useful
+			// privileged baseline and must not be used to accuse the low-priv role.
+			if (!isSuccessful(highResponse.statusCode)) { continue; }
 
-			// Request as low-priv user (headers scoped to this endpoint's host)
-			const lowPrivResponse = await performHttpRequest(
+			const lowResponse = await performHttpRequest(
 				'GET',
 				endpoint,
-				{ ...options?.headers, ...(await resolveHeaders(lowPrivProfile, endpoint)) },
+				{ ...options?.headers, ...lowHeaders },
 				options?.timeoutMs,
 			);
 
-			// Analyze
-			const isPrivesc = analyzePrivesc(adminResponse, lowPrivResponse);
+			const analysis = analyzePrivesc(highResponse, lowResponse);
+			if (!analysis.candidate) { continue; }
 
-			if (isPrivesc.vulnerable) {
-				findings.push({
-					type: 'privesc',
-					severity: isPrivesc.fullAccess ? 'critical' : 'high',
-					title: `Privilege Escalation: ${truncateUrl(endpoint)}`,
-					url: endpoint,
-					payload: `Admin endpoint accessed as "${lowPrivProfile}"`,
-					evidence: `Admin profile "${highPrivProfile}" got ${adminResponse.statusCode} (${adminResponse.body.length} bytes). ` +
-						`Low-priv profile "${lowPrivProfile}" got ${lowPrivResponse.statusCode} (${lowPrivResponse.body.length} bytes). ` +
-						(isPrivesc.fullAccess
-							? 'Low-priv user received identical content — critical vertical privilege escalation.'
-							: 'Low-priv user got 200 with different content — possible partial exposure.'),
-					confidence: isPrivesc.fullAccess ? 0.9 : 0.7,
-					details: `Admin endpoint "${endpoint}" is accessible to low-privilege profile "${lowPrivProfile}". ` +
-						`This indicates broken access control — the server does not enforce authorization checks.`,
-					adminEndpoint: endpoint,
-					method: 'GET',
-					adminResponse: {
-						statusCode: adminResponse.statusCode,
-						contentLength: adminResponse.body.length,
-					},
-					lowPrivResponse: {
-						statusCode: lowPrivResponse.statusCode,
-						contentLength: lowPrivResponse.body.length,
-					},
-					fullAccess: isPrivesc.fullAccess,
-					parameter: undefined,
-				});
-			}
+			findings.push({
+				type: 'privesc',
+				severity: analysis.equivalent ? 'high' : 'medium',
+				title: `Privilege escalation candidate: ${truncateUrl(endpoint)}`,
+				url: endpoint,
+				payload: `GET as "${lowPrivProfile}" against high-priv baseline "${highPrivProfile}"`,
+				evidence: `High-priv profile "${highPrivProfile}" received ${highResponse.statusCode} (${highResponse.body.length} bytes). ` +
+					`Low-priv profile "${lowPrivProfile}" received ${lowResponse.statusCode} (${lowResponse.body.length} bytes). ` +
+					`Equivalent representation: ${analysis.equivalent ? 'yes' : 'partial'}.`,
+				confidence: analysis.confidence,
+				details: `This is a read-only authorization candidate derived from a same-endpoint, cross-role baseline. ` +
+					`The endpoint-name heuristic only selected the target for testing; it did not determine impact. ` +
+					`No POST, PUT, PATCH, or DELETE request was issued by this scanner.`,
+				adminEndpoint: endpoint,
+				method: 'GET',
+				adminResponse: {
+					statusCode: highResponse.statusCode,
+					contentLength: highResponse.body.length,
+				},
+				lowPrivResponse: {
+					statusCode: lowResponse.statusCode,
+					contentLength: lowResponse.body.length,
+				},
+				fullAccess: analysis.equivalent,
+				parameter: undefined,
+			});
 		} catch {
-			// Skip failed requests
+			// A failed request is not evidence of authorization behavior.
 		}
 
 		if (options?.delayMs) { await sleep(options.delayMs); }
-	}
-
-	// Step 5: Also test admin endpoints with POST/PUT/DELETE methods
-	for (const endpoint of adminEndpoints.slice(0, 20)) {
-		for (const method of ['POST', 'PUT', 'DELETE']) {
-			try {
-				const lowPrivResponse = await performHttpRequest(
-					method,
-					endpoint,
-					{ ...options?.headers, ...(await resolveHeaders(lowPrivProfile, endpoint)), 'content-type': 'application/json' },
-					options?.timeoutMs,
-				);
-
-				// If low-priv user can POST/PUT/DELETE to admin endpoint = critical
-				if (lowPrivResponse.statusCode >= 200 && lowPrivResponse.statusCode < 400 &&
-					lowPrivResponse.statusCode !== 405) {
-					findings.push({
-						type: 'privesc',
-						severity: 'critical',
-						title: `Privilege Escalation: ${method} ${truncateUrl(endpoint)}`,
-						url: endpoint,
-						payload: `${method} as "${lowPrivProfile}" to admin endpoint`,
-						evidence: `Low-priv profile "${lowPrivProfile}" can ${method} to admin endpoint. Status: ${lowPrivResponse.statusCode}.`,
-						confidence: 0.85,
-						details: `Admin endpoint "${endpoint}" accepts ${method} requests from low-privilege profile "${lowPrivProfile}". ` +
-							`This could allow data modification or deletion by unauthorized users.`,
-						adminEndpoint: endpoint,
-						method,
-						adminResponse: { statusCode: 200, contentLength: 0 },
-						lowPrivResponse: {
-							statusCode: lowPrivResponse.statusCode,
-							contentLength: lowPrivResponse.body.length,
-						},
-						fullAccess: true,
-						parameter: undefined,
-					});
-				}
-			} catch {
-				// Skip
-			}
-
-			if (options?.delayMs) { await sleep(options.delayMs); }
-		}
 	}
 
 	return {
@@ -243,28 +180,28 @@ export function generatePrivescReport(result: PrivescScanResult): string {
 	lines.push('');
 	lines.push(`**Target:** \`${result.target}\``);
 	lines.push(`**Generated:** ${result.generatedAt}`);
-	lines.push(`**Admin Endpoints Tested:** ${result.adminEndpointsTested}`);
-	lines.push(`**Findings:** ${result.findings.length}`);
+	lines.push(`**Read-only Endpoints Tested:** ${result.adminEndpointsTested}`);
+	lines.push(`**Authorization Candidates:** ${result.findings.length}`);
 	lines.push(`**Duration:** ${result.elapsedMs}ms`);
+	lines.push('');
+	lines.push('> Safety mode: this scanner issues GET requests only. State-changing privilege probes are disabled by default.');
 	lines.push('');
 
 	if (result.findings.length === 0) {
-		lines.push('✅ No privilege escalation vulnerabilities detected.');
+		lines.push('No cross-role candidates met the evidence threshold.');
 	} else {
-		lines.push('---');
-		lines.push('');
 		for (let i = 0; i < result.findings.length; i++) {
-			const f = result.findings[i];
-			lines.push(`## ${i + 1}. ${f.title}`);
+			const finding = result.findings[i];
+			lines.push(`## ${i + 1}. ${finding.title}`);
 			lines.push('');
-			lines.push(`- **Severity:** ${f.severity.toUpperCase()}`);
-			lines.push(`- **Method:** ${f.method}`);
-			lines.push(`- **Full Access:** ${f.fullAccess ? '⚠️ YES' : 'Partial'}`);
-			lines.push(`- **Confidence:** ${Math.round(f.confidence * 100)}%`);
-			lines.push(`- **Admin Response:** ${f.adminResponse.statusCode} (${f.adminResponse.contentLength} bytes)`);
-			lines.push(`- **Low-Priv Response:** ${f.lowPrivResponse.statusCode} (${f.lowPrivResponse.contentLength} bytes)`);
+			lines.push(`- **Severity:** ${finding.severity.toUpperCase()}`);
+			lines.push(`- **Method:** ${finding.method}`);
+			lines.push(`- **Equivalent Access:** ${finding.fullAccess ? 'YES' : 'Partial'}`);
+			lines.push(`- **Confidence:** ${Math.round(finding.confidence * 100)}%`);
+			lines.push(`- **High-Priv Response:** ${finding.adminResponse.statusCode} (${finding.adminResponse.contentLength} bytes)`);
+			lines.push(`- **Low-Priv Response:** ${finding.lowPrivResponse.statusCode} (${finding.lowPrivResponse.contentLength} bytes)`);
 			lines.push('');
-			lines.push(`**Evidence:** ${f.evidence}`);
+			lines.push(`**Evidence:** ${finding.evidence}`);
 			lines.push('');
 		}
 	}
@@ -272,56 +209,48 @@ export function generatePrivescReport(result: PrivescScanResult): string {
 	return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Detection Logic
-// ---------------------------------------------------------------------------
+function analyzePrivesc(high: HttpResult, low: HttpResult): PrivescAnalysis {
+	if (!isSuccessful(low.statusCode)) {
+		return { candidate: false, equivalent: false, confidence: 0 };
+	}
 
-interface PrivescAnalysis {
-	vulnerable: boolean;
-	fullAccess: boolean;
+	const highHash = semanticHash(high.body);
+	const lowHash = semanticHash(low.body);
+	if (highHash === lowHash && high.body.length > 0) {
+		return { candidate: true, equivalent: true, confidence: 0.9 };
+	}
+
+	// A 2xx alone is never enough. Permit a lower-confidence candidate only when
+	// response shape is strongly similar; it is intentionally not labeled "full access".
+	const maxLength = Math.max(high.body.length, low.body.length);
+	if (maxLength === 0) {
+		return { candidate: false, equivalent: false, confidence: 0 };
+	}
+	const lengthRatio = Math.abs(high.body.length - low.body.length) / maxLength;
+	if (lengthRatio <= 0.05 && normalizedBody(high.body) === normalizedBody(low.body)) {
+		return { candidate: true, equivalent: false, confidence: 0.72 };
+	}
+
+	return { candidate: false, equivalent: false, confidence: 0 };
 }
 
-function analyzePrivesc(
-	adminResponse: HttpResult,
-	lowPrivResponse: HttpResult,
-): PrivescAnalysis {
-	// If low-priv gets 401/403 → properly protected
-	if (lowPrivResponse.statusCode === 401 || lowPrivResponse.statusCode === 403) {
-		return { vulnerable: false, fullAccess: false };
-	}
+function semanticHash(body: string): string {
+	return crypto.createHash('sha256').update(normalizedBody(body)).digest('hex').slice(0, 16);
+}
 
-	// If low-priv gets 404 → endpoint doesn't exist for them (could be hidden)
-	if (lowPrivResponse.statusCode === 404) {
-		return { vulnerable: false, fullAccess: false };
-	}
+function normalizedBody(body: string): string {
+	return body
+		.replace(/"(?:request_?id|trace_?id|timestamp|created_at|updated_at)"\s*:\s*"[^"]*"/gi, '"dynamic":"<redacted>"')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
 
-	// If low-priv gets 200 with similar content length → full access
-	if (lowPrivResponse.statusCode >= 200 && lowPrivResponse.statusCode < 300) {
-		const lengthDiff = Math.abs(adminResponse.body.length - lowPrivResponse.body.length);
-		const fullAccess = lengthDiff < Math.max(adminResponse.body.length * 0.1, 100);
-		return { vulnerable: true, fullAccess };
-	}
-
-	// If low-priv gets 302 redirect → might be redirecting to login (not vulnerable)
-	if (lowPrivResponse.statusCode === 302 || lowPrivResponse.statusCode === 301) {
-		return { vulnerable: false, fullAccess: false };
-	}
-
-	return { vulnerable: false, fullAccess: false };
+function isSuccessful(statusCode: number): boolean {
+	return statusCode >= 200 && statusCode < 300;
 }
 
 function isAdminEndpoint(url: string): boolean {
 	return ADMIN_PATH_PATTERNS.some(pattern => pattern.test(url));
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface HttpResult {
-	statusCode: number;
-	body: string;
-	headers: Record<string, string>;
 }
 
 async function getProfileHeaders(profileName: string, targetUrl?: string): Promise<Record<string, string> | undefined> {
@@ -353,7 +282,6 @@ async function performHttpRequest(
 			quiet: true,
 			maxBodyBytes: 512_000,
 		});
-
 		return {
 			statusCode: result?.response?.statusCode ?? 0,
 			body: result?.response?.bodyText ?? '',
@@ -365,11 +293,18 @@ async function performHttpRequest(
 }
 
 function loadEndpointsFromCrawl(filePath: string): string[] {
-	try {
-		return loadTargetsFromCrawl(filePath);
-	} catch {
-		return [];
-	}
+	try { return loadTargetsFromCrawl(filePath); }
+	catch { return []; }
+}
+
+function emptyResult(target: string, startTime: number): PrivescScanResult {
+	return {
+		generatedAt: new Date().toISOString(),
+		target,
+		adminEndpointsTested: 0,
+		findings: [],
+		elapsedMs: Date.now() - startTime,
+	};
 }
 
 function truncateUrl(url: string): string {
