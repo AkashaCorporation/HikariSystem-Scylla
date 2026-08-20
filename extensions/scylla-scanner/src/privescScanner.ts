@@ -134,6 +134,7 @@ export async function scanPrivesc(
 
 			findings.push({
 				type: 'privesc',
+				state: 'candidate',
 				severity: analysis.equivalent ? 'high' : 'medium',
 				title: `Privilege escalation candidate: ${truncateUrl(endpoint)}`,
 				url: endpoint,
@@ -144,7 +145,17 @@ export async function scanPrivesc(
 				confidence: analysis.confidence,
 				details: `This is a read-only authorization candidate derived from a same-endpoint, cross-role baseline. ` +
 					`The endpoint-name heuristic only selected the target for testing; it did not determine impact. ` +
-					`No POST, PUT, PATCH, or DELETE request was issued by this scanner.`,
+					`No POST, PUT, PATCH, or DELETE request was issued by this scanner. ` +
+					`An analyst or agent must still confirm the engagement's expected authorization policy before validation.`,
+				source: {
+					scanner: 'scylla-privesc',
+					command: 'scylla.scanner.privescHeadless',
+					strategy: 'cross-role-get-baseline',
+				},
+				actors: {
+					attackerProfile: lowPrivProfile,
+					baselineProfile: highPrivProfile,
+				},
 				adminEndpoint: endpoint,
 				method: 'GET',
 				adminResponse: {
@@ -194,10 +205,13 @@ export function generatePrivescReport(result: PrivescScanResult): string {
 			const finding = result.findings[i];
 			lines.push(`## ${i + 1}. ${finding.title}`);
 			lines.push('');
+			lines.push(`- **State:** ${(finding.state ?? 'candidate').toUpperCase()}`);
 			lines.push(`- **Severity:** ${finding.severity.toUpperCase()}`);
 			lines.push(`- **Method:** ${finding.method}`);
 			lines.push(`- **Equivalent Access:** ${finding.fullAccess ? 'YES' : 'Partial'}`);
 			lines.push(`- **Confidence:** ${Math.round(finding.confidence * 100)}%`);
+			if (finding.actors?.baselineProfile) { lines.push(`- **Baseline Profile:** ${finding.actors.baselineProfile}`); }
+			if (finding.actors?.attackerProfile) { lines.push(`- **Low-Priv Profile:** ${finding.actors.attackerProfile}`); }
 			lines.push(`- **High-Priv Response:** ${finding.adminResponse.statusCode} (${finding.adminResponse.contentLength} bytes)`);
 			lines.push(`- **Low-Priv Response:** ${finding.lowPrivResponse.statusCode} (${finding.lowPrivResponse.contentLength} bytes)`);
 			lines.push('');
@@ -240,7 +254,7 @@ function semanticHash(body: string): string {
 
 function normalizedBody(body: string): string {
 	return body
-		.replace(/"(?:request_?id|trace_?id|timestamp|created_at|updated_at)"\s*:\s*"[^"]*"/gi, '"dynamic":"<redacted>"')
+		.replace(/"(request_?id|trace_?id|timestamp|created_at|updated_at)"\s*:\s*"[^"]*"/gi, '"$1":"<dynamic>"')
 		.replace(/\s+/g, ' ')
 		.trim();
 }
