@@ -357,8 +357,12 @@ function mergeResource(previous: EngagementResource, next: EngagementResource): 
 }
 
 function inferExpectedAccess(identityId: string, resource: EngagementResource): AccessExpectation {
+	// Ownership is evidence that the owner should normally be able to access the
+	// resource, but non-ownership alone does not prove denial (admins, sharing,
+	// team membership, delegation, etc. may legitimately grant access). Explicit
+	// deny expectations must come from the engagement policy or recorded probe.
 	if (!resource.ownerIdentityId) { return 'unknown'; }
-	return resource.ownerIdentityId === identityId ? 'allow' : 'deny';
+	return resource.ownerIdentityId === identityId ? 'allow' : 'unknown';
 }
 
 function inferObservedAccess(statusCode?: number): AccessObservation {
