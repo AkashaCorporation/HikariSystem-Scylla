@@ -148,6 +148,55 @@ export interface RecordTransactionOptions extends EngagementIdOptions {
 	tags?: string[];
 }
 
+export interface ProbeOptions extends EngagementIdOptions {
+	identityId?: string;
+	resourceId?: string;
+	method?: string;
+	url?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	timeoutMs?: number;
+	followRedirects?: boolean;
+	maxBodyBytes?: number;
+	kind?: TransactionKind;
+	baselineTransactionId?: string;
+	parentTransactionId?: string;
+	mutation?: TransactionMutation;
+	expectedAccess?: AccessExpectation;
+	confidence?: number;
+	notes?: string;
+	tags?: string[];
+	/**
+	 * State-changing methods (POST/PUT/PATCH/DELETE and other non-safe verbs) are
+	 * blocked unless this flag is explicitly true. Scope/rate-limit enforcement
+	 * still occurs in scylla-http.
+	 */
+	allowStateChange?: boolean;
+}
+
+export interface ProbeResponseData {
+	statusCode: number;
+	statusMessage: string;
+	headers: Record<string, string | string[]>;
+	bodyText: string;
+	bodyBytes: number;
+	truncated: boolean;
+	elapsedMs: number;
+	redirected: boolean;
+	redirectCount: number;
+	finalUrl: string;
+}
+
+export interface ProbeResult {
+	generatedAt: string;
+	engagementId: string;
+	identityId: string;
+	resourceId?: string;
+	transaction: EngagementTransaction;
+	response: ProbeResponseData;
+	responseFile?: string;
+}
+
 export interface AuthorizationMatrixCell {
 	identityId: string;
 	resourceId: string;
