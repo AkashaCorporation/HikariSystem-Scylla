@@ -23,7 +23,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
-      run: |
+        run: |
           set -euo pipefail
           mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           printf '%s\n' "${changed[@]}"
