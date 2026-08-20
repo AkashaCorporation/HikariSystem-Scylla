@@ -10,7 +10,6 @@ import * as vscode from 'vscode';
 import { engagementStore } from './store';
 import type {
 	AuthorizationMatrixResult,
-	EngagementDocument,
 	EngagementTransaction,
 	RecordTransactionOptions,
 } from './types';
@@ -69,6 +68,12 @@ interface ScannerArtifact {
 	findings?: BaseScannerFinding[];
 }
 
+interface ImportedFindingResult {
+	imported: boolean;
+	resourceId: string;
+	newTransactionIds: string[];
+}
+
 export function isScannerImportOptions(value: unknown): value is ScannerImportOptions {
 	return !!value && typeof value === 'object' && typeof (value as ScannerImportOptions).scannerResultFile === 'string';
 }
@@ -85,20 +90,19 @@ export function importScannerResult(options: ScannerImportOptions): ScannerImpor
 
 	let findingsImported = 0;
 	const resourceIds = new Set<string>();
-	const transactionIds = new Set<string>();
+	const newTransactionIds = new Set<string>();
 
 	for (const rawFinding of artifact.findings ?? []) {
+		let result: ImportedFindingResult | undefined;
 		if (scannerType === 'idor' && rawFinding.type === 'idor') {
-			const result = importIdorFinding(engagement.id, rawFinding as IdorArtifactFinding);
-			if (result.imported) { findingsImported++; }
-			resourceIds.add(result.resourceId);
-			for (const id of result.transactionIds) { transactionIds.add(id); }
+			result = importIdorFinding(engagement.id, rawFinding as IdorArtifactFinding);
 		} else if (scannerType === 'privesc' && rawFinding.type === 'privesc') {
-			const result = importPrivescFinding(engagement.id, rawFinding as PrivescArtifactFinding);
-			if (result.imported) { findingsImported++; }
-			resourceIds.add(result.resourceId);
-			for (const id of result.transactionIds) { transactionIds.add(id); }
+			result = importPrivescFinding(engagement.id, rawFinding as PrivescArtifactFinding);
 		}
+		if (!result) { continue; }
+		if (result.imported) { findingsImported++; }
+		resourceIds.add(result.resourceId);
+		for (const id of result.newTransactionIds) { newTransactionIds.add(id); }
 	}
 
 	return {
@@ -107,15 +111,12 @@ export function importScannerResult(options: ScannerImportOptions): ScannerImpor
 		scannerType,
 		findingsImported,
 		resourcesRegistered: resourceIds.size,
-		transactionsRecorded: transactionIds.size,
+		transactionsRecorded: newTransactionIds.size,
 		matrix: engagementStore.authorizationMatrix(engagement.id),
 	};
 }
 
-function importIdorFinding(
-	engagementId: string,
-	finding: IdorArtifactFinding,
-): { imported: boolean; resourceId: string; transactionIds: string[] } {
+function importIdorFinding(engagementId: string, finding: IdorArtifactFinding): ImportedFindingResult {
 	if (!finding.testedUrl || !finding.attackerProfile || !finding.baselineProfile) {
 		throw new Error('Invalid IDOR artifact: testedUrl, attackerProfile, and baselineProfile are required.');
 	}
@@ -142,11 +143,21 @@ function importIdorFinding(
 	});
 
 	const method = finding.strategy === 'method-swap' ? 'POST' : 'GET';
-	const baselineTxId = `tx-idor-base-${shortHash(`${baselineIdentityId}|${finding.testedUrl}|${method}`)}`;
-	const attackerTxId = `tx-idor-probe-${shortHash(`${attackerIdentityId}|${finding.testedUrl}|${method}`)}`;
-	const before = engagementStore.getEngagement(engagementId).transactions.length;
+	const baselineEvidence = evidenceKey(
+		finding.originalResponse.statusCode,
+		finding.originalResponse.bodyHash,
+		finding.originalResponse.contentLength,
+	);
+	const attackerEvidence = evidenceKey(
+		finding.modifiedResponse.statusCode,
+		finding.modifiedResponse.bodyHash,
+		finding.modifiedResponse.contentLength,
+	);
+	const baselineTxId = `tx-idor-base-${shortHash(`${baselineIdentityId}|${finding.testedUrl}|${method}|${baselineEvidence}`)}`;
+	const attackerTxId = `tx-idor-probe-${shortHash(`${attackerIdentityId}|${finding.testedUrl}|${method}|${attackerEvidence}`)}`;
+	const newTransactionIds: string[] = [];
 
-	ensureTransaction(engagementId, baselineTxId, {
+	if (ensureTransaction(engagementId, baselineTxId, {
 		kind: 'baseline',
 		identityId: baselineIdentityId,
 		resourceId,
@@ -159,9 +170,11 @@ function importIdorFinding(
 		confidence: finding.confidence,
 		notes: 'Imported from IDOR scanner victim/baseline response.',
 		tags: ['scanner-import', 'idor', 'baseline'],
-	});
+	}).created) {
+		newTransactionIds.push(baselineTxId);
+	}
 
-	ensureTransaction(engagementId, attackerTxId, {
+	if (ensureTransaction(engagementId, attackerTxId, {
 		kind: 'probe',
 		identityId: attackerIdentityId,
 		resourceId,
@@ -181,20 +194,18 @@ function importIdorFinding(
 		confidence: finding.confidence,
 		notes: finding.details ?? 'Imported cross-profile IDOR candidate.',
 		tags: ['scanner-import', 'idor', 'candidate'],
-	});
+	}).created) {
+		newTransactionIds.push(attackerTxId);
+	}
 
-	const after = engagementStore.getEngagement(engagementId).transactions.length;
 	return {
-		imported: after > before,
+		imported: newTransactionIds.length > 0,
 		resourceId,
-		transactionIds: [baselineTxId, attackerTxId],
+		newTransactionIds,
 	};
 }
 
-function importPrivescFinding(
-	engagementId: string,
-	finding: PrivescArtifactFinding,
-): { imported: boolean; resourceId: string; transactionIds: string[] } {
+function importPrivescFinding(engagementId: string, finding: PrivescArtifactFinding): ImportedFindingResult {
 	const highProfile = finding.actors?.baselineProfile;
 	const lowProfile = finding.actors?.attackerProfile;
 	if (!finding.adminEndpoint || !highProfile || !lowProfile) {
@@ -212,16 +223,24 @@ function importPrivescFinding(
 		type: 'privileged-endpoint',
 		canonicalUrl: finding.adminEndpoint,
 		tags: ['scanner-import', 'privesc'],
-		metadata: {
-			scanner: 'scylla-privesc',
-		},
+		metadata: { scanner: 'scylla-privesc' },
 	});
 
-	const baselineTxId = `tx-priv-base-${shortHash(`${highIdentityId}|${finding.adminEndpoint}|${method}`)}`;
-	const probeTxId = `tx-priv-probe-${shortHash(`${lowIdentityId}|${finding.adminEndpoint}|${method}`)}`;
-	const before = engagementStore.getEngagement(engagementId).transactions.length;
+	const baselineEvidence = evidenceKey(
+		finding.adminResponse.statusCode,
+		undefined,
+		finding.adminResponse.contentLength,
+	);
+	const probeEvidence = evidenceKey(
+		finding.lowPrivResponse.statusCode,
+		undefined,
+		finding.lowPrivResponse.contentLength,
+	);
+	const baselineTxId = `tx-priv-base-${shortHash(`${highIdentityId}|${finding.adminEndpoint}|${method}|${baselineEvidence}`)}`;
+	const probeTxId = `tx-priv-probe-${shortHash(`${lowIdentityId}|${finding.adminEndpoint}|${method}|${probeEvidence}`)}`;
+	const newTransactionIds: string[] = [];
 
-	ensureTransaction(engagementId, baselineTxId, {
+	if (ensureTransaction(engagementId, baselineTxId, {
 		kind: 'baseline',
 		identityId: highIdentityId,
 		resourceId,
@@ -233,9 +252,11 @@ function importPrivescFinding(
 		confidence: finding.confidence,
 		notes: 'Imported from PrivEsc high-privilege baseline response.',
 		tags: ['scanner-import', 'privesc', 'baseline'],
-	});
+	}).created) {
+		newTransactionIds.push(baselineTxId);
+	}
 
-	ensureTransaction(engagementId, probeTxId, {
+	if (ensureTransaction(engagementId, probeTxId, {
 		kind: 'probe',
 		identityId: lowIdentityId,
 		resourceId,
@@ -248,13 +269,14 @@ function importPrivescFinding(
 		confidence: finding.confidence,
 		notes: finding.details ?? 'Imported read-only cross-role PrivEsc candidate.',
 		tags: ['scanner-import', 'privesc', 'candidate'],
-	});
+	}).created) {
+		newTransactionIds.push(probeTxId);
+	}
 
-	const after = engagementStore.getEngagement(engagementId).transactions.length;
 	return {
-		imported: after > before,
+		imported: newTransactionIds.length > 0,
 		resourceId,
-		transactionIds: [baselineTxId, probeTxId],
+		newTransactionIds,
 	};
 }
 
@@ -275,17 +297,20 @@ function ensureTransaction(
 	engagementId: string,
 	transactionId: string,
 	options: Omit<RecordTransactionOptions, 'engagementId' | 'transaction'>,
-): EngagementTransaction {
+): { transaction: EngagementTransaction; created: boolean } {
 	const engagement = engagementStore.getEngagement(engagementId);
 	const existing = engagement.transactions.find(transaction => transaction.id === transactionId);
-	if (existing) { return existing; }
-	return engagementStore.recordTransaction({
-		engagementId,
-		transaction: {
-			id: transactionId,
-			...options,
-		},
-	}).transaction;
+	if (existing) { return { transaction: existing, created: false }; }
+	return {
+		transaction: engagementStore.recordTransaction({
+			engagementId,
+			transaction: {
+				id: transactionId,
+				...options,
+			},
+		}).transaction,
+		created: true,
+	};
 }
 
 function inferScannerType(artifact: ScannerArtifact): ScannerImportType {
@@ -333,6 +358,10 @@ function profileIdentityId(profileName: string): string {
 
 function normalizeIdentifier(value: unknown): boolean {
 	return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 256;
+}
+
+function evidenceKey(statusCode: number, bodyHash?: string, contentLength?: number): string {
+	return `${statusCode}|${bodyHash ?? '-'}|${contentLength ?? '-'}`;
 }
 
 function shortHash(value: string): string {
