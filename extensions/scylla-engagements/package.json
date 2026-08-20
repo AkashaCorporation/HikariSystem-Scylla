@@ -1,0 +1,87 @@
+{
+	"name": "scylla-engagements",
+	"displayName": "Scylla Engagements",
+	"description": "Headless engagement, identity, resource, transaction, and authorization-matrix model for HikariSystem Scylla.",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"Other",
+		"Testing"
+	],
+	"keywords": [
+		"pentest",
+		"engagement",
+		"authorization",
+		"identity",
+		"transactions",
+		"headless"
+	],
+	"activationEvents": [
+		"onCommand:scylla.engagement.createHeadless",
+		"onCommand:scylla.engagement.getHeadless",
+		"onCommand:scylla.engagement.listHeadless",
+		"onCommand:scylla.engagement.setActiveHeadless",
+		"onCommand:scylla.engagement.addIdentityHeadless",
+		"onCommand:scylla.engagement.registerResourceHeadless",
+		"onCommand:scylla.engagement.recordTransactionHeadless",
+		"onCommand:scylla.engagement.authorizationMatrixHeadless"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "scylla.engagement.createHeadless",
+				"title": "Scylla Engagement: Create (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.getHeadless",
+				"title": "Scylla Engagement: Get (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.listHeadless",
+				"title": "Scylla Engagement: List (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.setActiveHeadless",
+				"title": "Scylla Engagement: Set Active (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.addIdentityHeadless",
+				"title": "Scylla Engagement: Add Identity (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.registerResourceHeadless",
+				"title": "Scylla Engagement: Register Resource (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.recordTransactionHeadless",
+				"title": "Scylla Engagement: Record Transaction (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.authorizationMatrixHeadless",
+				"title": "Scylla Engagement: Authorization Matrix (Headless)",
+				"category": "Scylla Engagement"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.2",
+		"@types/vscode": "^1.104.0",
+		"typescript": "^5.9.2"
+	}
+}
