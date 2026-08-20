@@ -54,6 +54,7 @@ const COMMAND_CAPABILITIES = new Map<string, CommandCapability>([
 	['scylla.engagement.addIdentityHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	['scylla.engagement.registerResourceHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	['scylla.engagement.recordTransactionHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
+	['scylla.engagement.probeHeadless', { headless: true, defaultTimeoutMs: 30_000, validateOutput: false }],
 	['scylla.engagement.authorizationMatrixHeadless', { headless: true, defaultTimeoutMs: 10_000, validateOutput: false }],
 	// scylla-reporting
 	['scylla.reporting.generateHeadless', { headless: true, defaultTimeoutMs: 60_000, validateOutput: true }],
