@@ -20,6 +20,18 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 export const DEFAULT_MAX_BODY_BYTES = 512 * 1024;
 const REQUESTS_DIR = path.join('.scylla', 'http', 'requests');
 const RESPONSES_DIR = path.join('.scylla', 'http', 'responses');
+const REDACTED = '[REDACTED]';
+const SENSITIVE_HEADERS = new Set([
+	'authorization',
+	'proxy-authorization',
+	'cookie',
+	'set-cookie',
+	'x-api-key',
+	'api-key',
+	'x-auth-token',
+	'x-access-token',
+]);
+const SENSITIVE_BODY_KEY = /^(?:password|passwd|pass|secret|token|access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|authorization|cookie)$/i;
 
 export function normalizeRequestDefinition(source?: Partial<HttpRequestDefinition>): HttpRequestDefinition {
 	const method = source?.method?.trim().toUpperCase();
@@ -57,6 +69,8 @@ export function saveRequestDefinition(
 		: path.join(ensureWorkspaceRoot(), REQUESTS_DIR, `${buildTimestampPrefix()}-${sanitizeFileName(requestDefinition.name ?? requestDefinition.url)}.scylla-http.json`);
 
 	fs.mkdirSync(path.dirname(requestFile), { recursive: true });
+	// Explicit saved request definitions remain replayable by design. Callers should
+	// treat them as sensitive artifacts because they may intentionally contain auth.
 	fs.writeFileSync(requestFile, JSON.stringify(requestDefinition, null, 2), 'utf8');
 
 	return {
@@ -92,6 +106,7 @@ export function saveResponseArtifact(
 	const workspaceRoot = ensureWorkspaceRoot();
 	const fileName = `${buildTimestampPrefix()}-${sanitizeFileName(requestDefinition.name ?? requestDefinition.url)}.response.json`;
 	const responseFile = path.join(workspaceRoot, RESPONSES_DIR, fileName);
+	const requestHeaders = normalizeHeaders(requestDefinition.headers);
 	fs.mkdirSync(path.dirname(responseFile), { recursive: true });
 	fs.writeFileSync(
 		responseFile,
@@ -102,12 +117,15 @@ export function saveResponseArtifact(
 					name: requestDefinition.name,
 					method: requestDefinition.method.toUpperCase(),
 					url: requestDefinition.url,
-					headers: normalizeHeaders(requestDefinition.headers),
-					body: requestDefinition.body,
+					headers: redactRequestHeaders(requestHeaders),
+					body: redactRequestBody(requestDefinition.body, requestHeaders),
 					timeoutMs: requestDefinition.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 					followRedirects: requestDefinition.followRedirects !== false
 				},
-				response
+				response: {
+					...response,
+					headers: redactResponseHeaders(response.headers),
+				}
 			},
 			null,
 			2
@@ -123,16 +141,32 @@ export function writeSendOutput(result: HttpSendResult, output: CommandOutputOpt
 	fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
 	if (format === 'md') {
-		fs.writeFileSync(outputPath, result.reportMarkdown, 'utf8');
+		fs.writeFileSync(outputPath, generateSendReport(result), 'utf8');
 		return;
 	}
 
 	const { reportMarkdown: _reportMarkdown, ...jsonResult } = result;
-	fs.writeFileSync(outputPath, JSON.stringify(jsonResult, null, 2), 'utf8');
+	const sanitizedResult = {
+		...jsonResult,
+		request: {
+			...jsonResult.request,
+			headers: redactRequestHeaders(jsonResult.request.headers),
+			body: redactRequestBody(jsonResult.request.body, jsonResult.request.headers),
+		},
+		response: {
+			...jsonResult.response,
+			headers: redactResponseHeaders(jsonResult.response.headers),
+		},
+	};
+	fs.writeFileSync(outputPath, JSON.stringify(sanitizedResult, null, 2), 'utf8');
 }
 
 export function generateSendReport(result: HttpSendResult): string {
 	const lines: string[] = [];
+	const safeRequestHeaders = redactRequestHeaders(result.request.headers);
+	const safeResponseHeaders = redactResponseHeaders(result.response.headers);
+	const safeRequestBody = redactRequestBody(result.request.body, result.request.headers);
+
 	lines.push('# Scylla HTTP Response Report');
 	lines.push('');
 	lines.push('## Request');
@@ -152,19 +186,19 @@ export function generateSendReport(result: HttpSendResult): string {
 	lines.push('');
 	lines.push('### Headers');
 	lines.push('');
-	if (Object.keys(result.request.headers).length === 0) {
+	if (Object.keys(safeRequestHeaders).length === 0) {
 		lines.push('- No custom headers');
 	} else {
-		for (const [name, value] of Object.entries(result.request.headers)) {
+		for (const [name, value] of Object.entries(safeRequestHeaders)) {
 			lines.push(`- ${name}: ${value}`);
 		}
 	}
 	lines.push('');
-	if (result.request.body) {
+	if (safeRequestBody) {
 		lines.push('### Body');
 		lines.push('');
 		lines.push('```http');
-		lines.push(result.request.body);
+		lines.push(safeRequestBody);
 		lines.push('```');
 		lines.push('');
 	}
@@ -180,7 +214,7 @@ export function generateSendReport(result: HttpSendResult): string {
 	lines.push('');
 	lines.push('### Response Headers');
 	lines.push('');
-	for (const [name, value] of Object.entries(result.response.headers)) {
+	for (const [name, value] of Object.entries(safeResponseHeaders)) {
 		lines.push(`- ${name}: ${Array.isArray(value) ? value.join(', ') : value}`);
 	}
 	lines.push('');
@@ -256,6 +290,64 @@ export function normalizeMaxBodyBytes(maxBodyBytes?: number): number {
 		return DEFAULT_MAX_BODY_BYTES;
 	}
 	return Math.max(4_096, Math.floor(maxBodyBytes!));
+}
+
+function redactRequestHeaders(headers: Record<string, string>): Record<string, string> {
+	const output: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		output[name] = SENSITIVE_HEADERS.has(name.toLowerCase()) ? REDACTED : value;
+	}
+	return output;
+}
+
+function redactResponseHeaders(headers: Record<string, string | string[]>): Record<string, string | string[]> {
+	const output: Record<string, string | string[]> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		output[name] = SENSITIVE_HEADERS.has(name.toLowerCase()) ? REDACTED : value;
+	}
+	return output;
+}
+
+function redactRequestBody(body: string | undefined, headers: Record<string, string>): string | undefined {
+	if (!body) { return body; }
+	const contentType = headers['content-type']?.toLowerCase() ?? '';
+	if (contentType.includes('application/json')) {
+		try {
+			const parsed = JSON.parse(body) as unknown;
+			return JSON.stringify(redactJsonValue(parsed));
+		} catch {
+			return body;
+		}
+	}
+	if (contentType.includes('application/x-www-form-urlencoded')) {
+		try {
+			const params = new URLSearchParams(body);
+			for (const key of Array.from(params.keys())) {
+				if (SENSITIVE_BODY_KEY.test(key)) {
+					params.set(key, REDACTED);
+				}
+			}
+			return params.toString();
+		} catch {
+			return body;
+		}
+	}
+	return body;
+}
+
+function redactJsonValue(value: unknown, key?: string): unknown {
+	if (key && SENSITIVE_BODY_KEY.test(key)) { return REDACTED; }
+	if (Array.isArray(value)) {
+		return value.map(item => redactJsonValue(item));
+	}
+	if (value && typeof value === 'object') {
+		const output: Record<string, unknown> = {};
+		for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+			output[childKey] = redactJsonValue(childValue, childKey);
+		}
+		return output;
+	}
+	return value;
 }
 
 function trimForReport(text: string): string {
