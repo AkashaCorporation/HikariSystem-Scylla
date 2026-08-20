@@ -131,6 +131,7 @@ const tasks = compilations.map(function (tsconfigFile) {
 						if (err && !err.__reporter__) {
 							reporter(err);
 						}
+					}
 				}))
 				.pipe(tsFilter)
 				.pipe(util.loadSourcemaps())
