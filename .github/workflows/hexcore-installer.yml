@@ -48,10 +48,13 @@ jobs:
           npm --version
           python --version
 
+      - name: Scylla preflight
+        shell: pwsh
+        run: node scripts/verify-scylla-preflight.cjs
+
       - name: Install global build tools
         shell: pwsh
-        run: |
-          npm install -g node-gyp gulp-cli tsx prebuild-install
+        run: npm install -g node-gyp gulp-cli tsx prebuild-install
 
       - name: Install build gyp dependencies
         shell: pwsh
@@ -95,12 +98,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $built = 0
-          Get-ChildItem extensions -Directory -Filter "scylla-*" | Sort-Object Name | ForEach-Object {
-            $dir = $_.FullName
+          $extensions = Get-ChildItem extensions -Directory -Filter "scylla-*" | Sort-Object Name
+          foreach ($entry in $extensions) {
+            $dir = $entry.FullName
             $manifest = Join-Path $dir "package.json"
-            if (-not (Test-Path $manifest)) { return }
+            if (-not (Test-Path $manifest)) { continue }
 
-            Write-Host "::group::$($_.Name)"
+            Write-Host "::group::$($entry.Name)"
             Push-Location $dir
             try {
               if (Test-Path "package-lock.json") {
@@ -112,7 +116,7 @@ jobs:
               $compile = node -p "Boolean(require('./package.json').scripts?.compile)"
               if ($compile.Trim() -eq "true") {
                 npm run compile
-                $script:built++
+                $built++
               } else {
                 Write-Host "No compile script; manifest/assets-only extension."
               }
@@ -164,22 +168,6 @@ jobs:
               Pop-Location
               Write-Host "::endgroup::"
             }
-          }
-
-      - name: Validate Scylla job examples
-        shell: pwsh
-        run: |
-          $files = Get-ChildItem "docs/jobs" -Filter "*.scylla_job.json" -File
-          if ($files.Count -eq 0) { throw "No Scylla job examples found." }
-          foreach ($file in $files) {
-            $job = Get-Content $file.FullName -Raw | ConvertFrom-Json
-            if (-not $job.target) { throw "$($file.Name): target is required" }
-            if (-not $job.outDir) { throw "$($file.Name): outDir is required" }
-            if (-not $job.steps -or $job.steps.Count -eq 0) { throw "$($file.Name): steps are required" }
-            foreach ($step in $job.steps) {
-              if (-not $step.cmd) { throw "$($file.Name): every step requires cmd" }
-            }
-            Write-Host "OK $($file.Name) ($($job.steps.Count) steps)"
           }
 
       - name: Build Scylla Code-OSS
@@ -255,6 +243,7 @@ jobs:
 
           - Runner: windows-2022
           - Node: 22.21.1
+          - Shared preflight: attempted
           - Artifact: Scylla-win32-x64.zip
           - Scylla extension compile: attempted
           - Code-OSS package verification: attempted
