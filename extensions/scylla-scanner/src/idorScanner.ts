@@ -5,13 +5,11 @@
 
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { loadParametersFromCrawl, loadTargetsFromCrawl } from './artifacts';
+import { loadTargetsFromCrawl } from './artifacts';
 import type {
-	CrawlResultFile,
 	IdorFinding,
 	IdorScanResult,
 	IdorStrategy,
-	VulnFinding,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -19,19 +17,18 @@ import type {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_SENSITIVE_PATTERNS = [
-	'\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b',                          // email
-	'\\b\\d{3}[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b',                   // phone (US)
-	'\\b\\d{3}[-.\\s]?\\d{2}[-.\\s]?\\d{4}\\b',                   // SSN
-	'\\b(?:4\\d{3}|5[1-5]\\d{2}|3[47]\\d{2}|6011)[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b', // credit card
-	'\\b\\d+\\s+[\\w\\s]+(?:st|nd|rd|th|ave|blvd|dr|ln|rd|way|ct)\\b', // address
+	'\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b',
+	'\\b\\d{3}[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b',
+	'\\b\\d{3}[-.\\s]?\\d{2}[-.\\s]?\\d{4}\\b',
+	'\\b(?:4\\d{3}|5[1-5]\\d{2}|3[47]\\d{2}|6011)[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b',
+	'\\b\\d+\\s+[\\w\\s]+(?:st|nd|rd|th|ave|blvd|dr|ln|rd|way|ct)\\b',
 ];
 
-// Regex to find numeric/UUID identifiers in URL paths and query params
 const ID_PATTERNS = [
-	/\/(\d+)(?:\/|$|\?)/g,                                          // /users/123
-	/[?&](?:id|user_id|userId|account_id|order_id|item_id|pid|uid|oid)=(\d+)/gi, // ?id=123
-	/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$|\?)/gi, // UUID
-	/[?&](?:id|uid|uuid|token)=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi, // ?id=UUID
+	/\/(\d+)(?:\/|$|\?)/g,
+	/[?&](?:id|user_id|userId|account_id|order_id|item_id|pid|uid|oid)=(\d+)/gi,
+	/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$|\?)/gi,
+	/[?&](?:id|uid|uuid|token)=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
 ];
 
 interface IdorTestCase {
@@ -54,6 +51,12 @@ interface ScanOptions {
 	profiles?: string[];
 }
 
+interface HttpResult {
+	statusCode: number;
+	body: string;
+	headers: Record<string, string>;
+}
+
 /** Extract the lowercased host from a URL (or bare host) for per-host header caching. */
 function hostOf(url: string): string {
 	try { return new URL(url.includes('://') ? url : `http://${url}`).hostname.toLowerCase(); }
@@ -70,18 +73,11 @@ export async function scanIdor(
 	const sensitiveRegexes = buildSensitiveRegexes(options?.sensitivePatterns);
 	const findings: IdorFinding[] = [];
 
-	// Load endpoints from crawl results
 	const endpoints = crawlResultFile
 		? loadEndpointsFromCrawl(crawlResultFile)
 		: [{ url: target, method: 'GET' }];
-
-	// Extract identifiable endpoints (URLs with IDs)
 	const testCases = generateTestCases(endpoints, strategies);
 
-	// Resolve auth headers PER REQUEST HOST (not once per target) so cookies stay
-	// domain-scoped: a crawl can yield endpoints on different hosts, and reusing a
-	// single target-scoped header map would re-leak cookies cross-host. Headers are
-	// cached by profile+host to avoid re-querying the auth extension per request.
 	const usingProfiles = !!(options?.profiles && options.profiles.length >= 2);
 	const staticHeaders: Record<string, string> = { ...options?.headers };
 	if (options?.cookie) { staticHeaders['cookie'] = options.cookie; }
@@ -100,87 +96,114 @@ export async function scanIdor(
 			);
 			if (result?.headers) { headers = result.headers; }
 		} catch {
-			// Auth extension not available
+			// Auth extension not available. The scan will not assert cross-user IDOR.
 		}
 		headerCache.set(key, headers);
 		return headers;
 	};
 
-	const profileNames = usingProfiles && options?.profiles ? options.profiles : ['default'];
+	// A real cross-user authorization claim requires two identities. Without two
+	// profiles we still enumerate test cases, but deliberately emit no IDOR findings:
+	// a 2xx response to a mutated identifier alone is only an observation, not proof.
+	if (!usingProfiles || !options?.profiles) {
+		return {
+			generatedAt: new Date().toISOString(),
+			target,
+			endpointsTested: testCases.length,
+			strategiesUsed: strategies,
+			findings,
+			elapsedMs: Date.now() - startTime,
+		};
+	}
+
+	const attackerProfile = options.profiles[0];
+	const victimProfile = options.profiles[1];
 
 	for (const testCase of testCases) {
-		// Strategy: send original request as User A, modified request as User A (or User B if available)
-		const userAProfile = profileNames[0];
-		const userBProfile = profileNames.length >= 2 ? profileNames[1] : profileNames[0];
-
 		try {
-			// Request 1: Original URL with User A (headers scoped to this URL's host)
-			const originalResponse = await performHttpRequest(
+			// Baseline 1: attacker accesses its original resource-shaped URL.
+			const attackerOriginal = await performHttpRequest(
 				testCase.method,
 				testCase.originalUrl,
-				await resolveHeaders(userAProfile, testCase.originalUrl),
-				options?.timeoutMs,
+				await resolveHeaders(attackerProfile, testCase.originalUrl),
+				options.timeoutMs,
 			);
 
-			if (options?.delayMs) { await sleep(options.delayMs); }
+			if (options.delayMs) { await sleep(options.delayMs); }
 
-			// Request 2: Modified URL (with swapped ID) using User B's session (headers scoped to this URL's host)
-			const modifiedResponse = await performHttpRequest(
-				testCase.method === 'method-swap' ? swapMethod(testCase.method) : testCase.method,
+			// Baseline 2: victim accesses the exact mutated URL. This is the critical
+			// ownership/visibility baseline that the old implementation was missing.
+			const victimBaseline = await performHttpRequest(
+				testCase.method,
 				testCase.testedUrl,
-				await resolveHeaders(userBProfile, testCase.testedUrl),
-				options?.timeoutMs,
+				await resolveHeaders(victimProfile, testCase.testedUrl),
+				options.timeoutMs,
 			);
 
-			// Compare responses
-			const originalHash = hashBody(originalResponse.body);
-			const modifiedHash = hashBody(modifiedResponse.body);
+			if (options.delayMs) { await sleep(options.delayMs); }
 
-			const isIdor = detectIdor(
-				originalResponse,
-				modifiedResponse,
-				originalHash,
-				modifiedHash,
-				testCase.strategy,
+			// Cross-user probe: attacker requests the same URL proven reachable by victim.
+			const attackerCross = await performHttpRequest(
+				testCase.method,
+				testCase.testedUrl,
+				await resolveHeaders(attackerProfile, testCase.testedUrl),
+				options.timeoutMs,
 			);
 
-			if (isIdor) {
-				const sensitiveData = findSensitiveData(modifiedResponse.body, sensitiveRegexes);
-
-				findings.push({
-					type: 'idor',
-					severity: sensitiveData.length > 0 ? 'high' : 'medium',
-					title: `IDOR: ${testCase.strategy} on ${truncateUrl(testCase.originalUrl)}`,
-					url: testCase.originalUrl,
-					parameter: testCase.paramName,
-					payload: testCase.testedValue ?? testCase.testedUrl,
-					evidence: `Original status: ${originalResponse.statusCode}, Modified status: ${modifiedResponse.statusCode}. ` +
-						`Body match: ${originalHash === modifiedHash ? 'identical' : 'different'}. ` +
-						(sensitiveData.length > 0 ? `Sensitive data found: ${sensitiveData.join(', ')}` : 'No sensitive data patterns detected.'),
-					confidence: calculateIdorConfidence(originalResponse, modifiedResponse, sensitiveData, testCase.strategy),
-					details: `Strategy: ${testCase.strategy}. Tested "${testCase.originalValue}" → "${testCase.testedValue}". ` +
-						`Response indicates the server returned data for a different user/object.`,
-					originalUrl: testCase.originalUrl,
-					testedUrl: testCase.testedUrl,
-					strategy: testCase.strategy,
-					originalResponse: {
-						statusCode: originalResponse.statusCode,
-						bodyHash: originalHash,
-						contentLength: originalResponse.body.length,
-					},
-					modifiedResponse: {
-						statusCode: modifiedResponse.statusCode,
-						bodyHash: modifiedHash,
-						contentLength: modifiedResponse.body.length,
-					},
-					sensitiveDataFound: sensitiveData,
-				});
+			if (!isSuccessful(victimBaseline.statusCode) || !isSuccessful(attackerCross.statusCode)) {
+				continue;
 			}
+
+			const victimHash = hashBody(victimBaseline.body);
+			const attackerCrossHash = hashBody(attackerCross.body);
+			const equivalent = responsesEquivalent(victimBaseline, attackerCross);
+
+			// Only promote to a finding when the unauthorized identity receives an
+			// equivalent representation of a resource the victim can access. A generic
+			// 2xx or merely "different body" is intentionally insufficient.
+			if (!equivalent) {
+				continue;
+			}
+
+			const sensitiveData = findSensitiveData(attackerCross.body, sensitiveRegexes);
+			const confidence = calculateIdorConfidence(victimBaseline, attackerCross, sensitiveData);
+
+			findings.push({
+				type: 'idor',
+				severity: sensitiveData.length > 0 ? 'high' : 'medium',
+				title: `IDOR candidate: ${testCase.strategy} on ${truncateUrl(testCase.originalUrl)}`,
+				url: testCase.originalUrl,
+				parameter: testCase.paramName,
+				payload: testCase.testedValue ?? testCase.testedUrl,
+				evidence: `Victim profile "${victimProfile}" received ${victimBaseline.statusCode} for ${testCase.testedUrl}; ` +
+					`attacker profile "${attackerProfile}" received ${attackerCross.statusCode} for the same URL. ` +
+					`Equivalent response: yes (victim hash ${victimHash}, attacker hash ${attackerCrossHash}). ` +
+					(sensitiveData.length > 0 ? `Sensitive data patterns: ${sensitiveData.join(', ')}` : 'No configured sensitive-data pattern matched.'),
+				confidence,
+				details: `Cross-profile authorization candidate. Strategy: ${testCase.strategy}. ` +
+					`Identifier mutation: "${testCase.originalValue}" → "${testCase.testedValue}". ` +
+					`Attacker baseline status on original URL: ${attackerOriginal.statusCode}. ` +
+					`The finding is based on victim-vs-attacker equivalence for the exact same mutated resource URL, not on status code alone.`,
+				originalUrl: testCase.originalUrl,
+				testedUrl: testCase.testedUrl,
+				strategy: testCase.strategy,
+				originalResponse: {
+					statusCode: victimBaseline.statusCode,
+					bodyHash: victimHash,
+					contentLength: victimBaseline.body.length,
+				},
+				modifiedResponse: {
+					statusCode: attackerCross.statusCode,
+					bodyHash: attackerCrossHash,
+					contentLength: attackerCross.body.length,
+				},
+				sensitiveDataFound: sensitiveData,
+			});
 		} catch {
-			// Skip failed requests
+			// Network/parser errors are observations, not authorization findings.
 		}
 
-		if (options?.delayMs) { await sleep(options.delayMs); }
+		if (options.delayMs) { await sleep(options.delayMs); }
 	}
 
 	return {
@@ -199,43 +222,34 @@ export function generateIdorReport(result: IdorScanResult): string {
 	lines.push('');
 	lines.push(`**Target:** \`${result.target}\``);
 	lines.push(`**Generated:** ${result.generatedAt}`);
-	lines.push(`**Endpoints Tested:** ${result.endpointsTested}`);
+	lines.push(`**Test Cases:** ${result.endpointsTested}`);
 	lines.push(`**Strategies:** ${result.strategiesUsed.join(', ')}`);
-	lines.push(`**Findings:** ${result.findings.length}`);
+	lines.push(`**Cross-profile Candidates:** ${result.findings.length}`);
 	lines.push(`**Duration:** ${result.elapsedMs}ms`);
 	lines.push('');
 
 	if (result.findings.length === 0) {
-		lines.push('✅ No IDOR vulnerabilities detected.');
+		lines.push('No cross-profile IDOR candidates met the evidence threshold.');
 	} else {
-		lines.push('---');
-		lines.push('');
 		for (let i = 0; i < result.findings.length; i++) {
-			const f = result.findings[i];
-			lines.push(`## ${i + 1}. ${f.title}`);
+			const finding = result.findings[i];
+			lines.push(`## ${i + 1}. ${finding.title}`);
 			lines.push('');
-			lines.push(`- **Severity:** ${f.severity.toUpperCase()}`);
-			lines.push(`- **Strategy:** ${f.strategy}`);
-			lines.push(`- **Confidence:** ${Math.round(f.confidence * 100)}%`);
-			lines.push(`- **Original URL:** \`${f.originalUrl}\``);
-			lines.push(`- **Tested URL:** \`${f.testedUrl}\``);
-			if (f.sensitiveDataFound.length > 0) {
-				lines.push(`- **⚠️ Sensitive Data:** ${f.sensitiveDataFound.join(', ')}`);
-			}
+			lines.push(`- **Severity:** ${finding.severity.toUpperCase()}`);
+			lines.push(`- **Strategy:** ${finding.strategy}`);
+			lines.push(`- **Confidence:** ${Math.round(finding.confidence * 100)}%`);
+			lines.push(`- **Original URL:** \`${finding.originalUrl}\``);
+			lines.push(`- **Tested URL:** \`${finding.testedUrl}\``);
 			lines.push('');
-			lines.push(`**Evidence:** ${f.evidence}`);
+			lines.push(`**Evidence:** ${finding.evidence}`);
 			lines.push('');
-			lines.push(`**Details:** ${f.details}`);
+			lines.push(`**Details:** ${finding.details}`);
 			lines.push('');
 		}
 	}
 
 	return lines.join('\n');
 }
-
-// ---------------------------------------------------------------------------
-// Test Case Generation
-// ---------------------------------------------------------------------------
 
 function generateTestCases(
 	endpoints: Array<{ url: string; method: string }>,
@@ -245,21 +259,14 @@ function generateTestCases(
 
 	for (const endpoint of endpoints) {
 		for (const pattern of ID_PATTERNS) {
-			// Reset regex lastIndex
 			pattern.lastIndex = 0;
 			let match: RegExpExecArray | null;
-
 			while ((match = pattern.exec(endpoint.url)) !== null) {
 				const originalValue = match[1];
 				const fullMatch = match[0];
-
 				for (const strategy of strategies) {
-					const replacements = getReplacements(originalValue, strategy);
-
-					for (const replacement of replacements) {
-						const testedUrl = endpoint.url.replace(fullMatch,
-							fullMatch.replace(originalValue, replacement));
-
+					for (const replacement of getReplacements(originalValue, strategy)) {
+						const testedUrl = endpoint.url.replace(fullMatch, fullMatch.replace(originalValue, replacement));
 						testCases.push({
 							originalUrl: endpoint.url,
 							testedUrl,
@@ -274,7 +281,6 @@ function generateTestCases(
 			}
 		}
 	}
-
 	return testCases;
 }
 
@@ -282,124 +288,66 @@ function getReplacements(originalValue: string, strategy: IdorStrategy): string[
 	switch (strategy) {
 		case 'sequential': {
 			const num = parseInt(originalValue, 10);
-			if (!isNaN(num)) {
-				return [String(num + 1), String(num - 1)];
-			}
-			return [];
+			return Number.isNaN(num) ? [] : [String(num + 1), String(num - 1)];
 		}
 		case 'zero-id':
 			return ['0', '1', '-1'];
 		case 'uuid-swap':
-			// Generate a random UUID to test with
-			if (originalValue.length === 36 && originalValue.includes('-')) {
-				return [crypto.randomUUID()];
-			}
-			return [];
+			return originalValue.length === 36 && originalValue.includes('-') ? [crypto.randomUUID()] : [];
 		case 'remove-param':
 			return [''];
 		case 'method-swap':
-			return [originalValue]; // Same ID, different method
+			return [originalValue];
 		default:
 			return [];
 	}
 }
 
-// ---------------------------------------------------------------------------
-// IDOR Detection Logic
-// ---------------------------------------------------------------------------
+function responsesEquivalent(victim: HttpResult, attacker: HttpResult): boolean {
+	if (hashBody(victim.body) === hashBody(attacker.body)) {
+		return victim.body.length > 0;
+	}
 
-interface HttpResult {
-	statusCode: number;
-	body: string;
-	headers: Record<string, string>;
+	// Allow small non-semantic variance (timestamps, request IDs, counters) while
+	// avoiding the old "any different 2xx body == IDOR" mistake.
+	const maxLength = Math.max(victim.body.length, attacker.body.length);
+	if (maxLength === 0) { return false; }
+	const lengthDiff = Math.abs(victim.body.length - attacker.body.length) / maxLength;
+	return lengthDiff <= 0.02 && normalizedBody(victim.body) === normalizedBody(attacker.body);
 }
 
-function detectIdor(
-	original: HttpResult,
-	modified: HttpResult,
-	originalHash: string,
-	modifiedHash: string,
-	strategy: IdorStrategy,
-): boolean {
-	// If modified request got 401/403/404, not an IDOR
-	if (modified.statusCode === 401 || modified.statusCode === 403 || modified.statusCode === 404) {
-		return false;
-	}
-
-	// If modified request got same 200 with different content — potential IDOR
-	if (modified.statusCode >= 200 && modified.statusCode < 300) {
-		// Different body = different user's data = IDOR
-		if (originalHash !== modifiedHash && modified.body.length > 50) {
-			return true;
-		}
-
-		// For zero-id and remove-param: even same body might indicate broken access control
-		if (strategy === 'zero-id' || strategy === 'remove-param') {
-			if (modified.body.length > 50) {
-				return true;
-			}
-		}
-	}
-
-	// Method swap: if changing GET to POST (or vice versa) still returns 200
-	if (strategy === 'method-swap' && modified.statusCode >= 200 && modified.statusCode < 300) {
-		return true;
-	}
-
-	return false;
+function normalizedBody(body: string): string {
+	return body
+		.replace(/"(?:request_?id|trace_?id|timestamp|created_at|updated_at)"\s*:\s*"[^"]*"/gi, '"$1":"<dynamic>"')
+		.replace(/\s+/g, ' ')
+		.trim();
 }
 
-function calculateIdorConfidence(
-	original: HttpResult,
-	modified: HttpResult,
-	sensitiveData: string[],
-	strategy: IdorStrategy,
-): number {
-	let confidence = 0.3; // Base confidence
-
-	// Higher confidence if different body content
-	if (hashBody(original.body) !== hashBody(modified.body)) {
-		confidence += 0.2;
-	}
-
-	// Higher confidence if sensitive data was found
-	if (sensitiveData.length > 0) {
-		confidence += 0.3;
-	}
-
-	// Higher confidence for sequential strategy (more reliable)
-	if (strategy === 'sequential') {
-		confidence += 0.1;
-	}
-
-	// Lower confidence for zero-id (might just be default behavior)
-	if (strategy === 'zero-id') {
-		confidence -= 0.1;
-	}
-
-	return Math.min(Math.max(confidence, 0.1), 1.0);
+function calculateIdorConfidence(victim: HttpResult, attacker: HttpResult, sensitiveData: string[]): number {
+	let confidence = hashBody(victim.body) === hashBody(attacker.body) ? 0.85 : 0.72;
+	if (sensitiveData.length > 0) { confidence += 0.08; }
+	return Math.min(confidence, 0.95);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+function isSuccessful(statusCode: number): boolean {
+	return statusCode >= 200 && statusCode < 300;
+}
 
 function findSensitiveData(body: string, regexes: RegExp[]): string[] {
 	const found: string[] = [];
 	for (const regex of regexes) {
-		if (regex.test(body)) {
-			found.push(regex.source.slice(0, 30) + '...');
-		}
+		regex.lastIndex = 0;
+		if (regex.test(body)) { found.push(regex.source.slice(0, 30) + '...'); }
 	}
 	return found;
 }
 
 function buildSensitiveRegexes(patterns?: string[]): RegExp[] {
 	const sources = patterns && patterns.length > 0 ? patterns : DEFAULT_SENSITIVE_PATTERNS;
-	return sources.map(p => {
-		try { return new RegExp(p, 'i'); }
+	return sources.map(pattern => {
+		try { return new RegExp(pattern, 'i'); }
 		catch { return null; }
-	}).filter((r): r is RegExp => r !== null);
+	}).filter((regex): regex is RegExp => regex !== null);
 }
 
 function hashBody(body: string): string {
@@ -407,8 +355,7 @@ function hashBody(body: string): string {
 }
 
 function extractParamName(match: string): string | undefined {
-	const paramMatch = match.match(/[?&]([^=]+)=/);
-	return paramMatch?.[1];
+	return match.match(/[?&]([^=]+)=/)?.[1];
 }
 
 function swapMethod(method: string): string {
@@ -426,8 +373,7 @@ function truncateUrl(url: string): string {
 
 function loadEndpointsFromCrawl(filePath: string): Array<{ url: string; method: string }> {
 	try {
-		const urls = loadTargetsFromCrawl(filePath);
-		return urls.map(url => ({ url, method: 'GET' }));
+		return loadTargetsFromCrawl(filePath).map(url => ({ url, method: 'GET' }));
 	} catch {
 		return [];
 	}
@@ -450,7 +396,6 @@ async function performHttpRequest(
 			quiet: true,
 			maxBodyBytes: 512_000,
 		});
-
 		return {
 			statusCode: result?.response?.statusCode ?? 0,
 			body: result?.response?.bodyText ?? '',
