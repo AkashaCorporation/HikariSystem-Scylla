@@ -28,6 +28,7 @@
 		"onCommand:scylla.engagement.addIdentityHeadless",
 		"onCommand:scylla.engagement.registerResourceHeadless",
 		"onCommand:scylla.engagement.recordTransactionHeadless",
+		"onCommand:scylla.engagement.probeHeadless",
 		"onCommand:scylla.engagement.authorizationMatrixHeadless"
 	],
 	"main": "./out/extension.js",
@@ -66,6 +67,11 @@
 			{
 				"command": "scylla.engagement.recordTransactionHeadless",
 				"title": "Scylla Engagement: Record Transaction (Headless)",
+				"category": "Scylla Engagement"
+			},
+			{
+				"command": "scylla.engagement.probeHeadless",
+				"title": "Scylla Engagement: Probe Identity Against Resource (Headless)",
 				"category": "Scylla Engagement"
 			},
 			{
