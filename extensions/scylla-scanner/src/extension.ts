@@ -157,7 +157,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		}
 	}
 
-	// Helper: create findings from scan results
+	// Helper: create findings from scan results while preserving the structured
+	// evidence lifecycle and cross-profile provenance emitted by scanners.
 	async function createFindingsFromResults(findings: VulnFinding[], quiet: boolean): Promise<void> {
 		for (const f of findings) {
 			try {
@@ -165,10 +166,14 @@ export function activate(context: vscode.ExtensionContext): void {
 					title: f.title,
 					severity: f.severity,
 					status: 'open',
+					classification: f.state ?? 'candidate',
+					confidence: f.confidence,
+					source: f.source,
+					actors: f.actors,
 					target: f.url,
 					summary: f.details,
 					evidence: [f.evidence, `Payload: ${f.payload}`],
-					tags: [f.type, `confidence:${Math.round(f.confidence * 100)}%`],
+					tags: [f.type, `state:${f.state ?? 'candidate'}`, `confidence:${Math.round(f.confidence * 100)}%`],
 					quiet,
 				});
 			} catch {
@@ -765,6 +770,7 @@ export function activate(context: vscode.ExtensionContext): void {
 				headers: opts.headers,
 				cookie: opts.cookie,
 				profiles: opts.profiles,
+				knownIds: opts.knownIds,
 			});
 			addFindings(result.findings, 'IDOR', opts.url);
 			if (opts.output) { writeResult(result, opts.output, generateIdorReport(result)); }
