@@ -175,4 +175,4 @@ Replace all example targets and credentials before running them. The examples in
 - Persistence is JSON, not the updated SQLite engine yet.
 - The Jobs runner has a soft timeout implemented with `Promise.race`; timing out does not currently cancel the underlying command. Do not configure automatic retries for long-running scanner steps until cooperative cancellation/timeout containment is implemented.
 - The Jobs runner does not yet support native step-output dataflow. The active-engagement pointer and file-backed scanner import are the current bridge between steps.
-- CI/CD and distributable ZIP generation still need to be ported from the current HexCore build/release pipeline.
+- The Windows Code-OSS/ZIP pipeline has been ported from the HexCore packaging path and is being validated end-to-end before the Scylla 3.0.0 release tag is cut.
