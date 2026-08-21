@@ -3,9 +3,10 @@
  *  Licensed under the GPLv3 License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from 'fs';
 import * as path from 'path';
 import type {
+	AuthorizationSummary,
+	EngagementSummary,
 	ExecutiveSummary,
 	FindingEntry,
 	ReconSummary,
@@ -17,19 +18,21 @@ import { loadFindings } from './findingsParser';
 import {
 	listJsonFiles,
 	loadJsonFile,
+	resolveAuthorizationMatrixFile,
+	resolveEngagementFile,
 	resolveFindingsDir,
-	resolveOutputPath,
+	resolvePipelineStatusPath,
+	resolveReportPaths,
 	resolveScanResultsDir,
 	writeReport,
 	writeReportData,
 } from './artifacts';
-
-// ---------------------------------------------------------------------------
-// Report Generation
-// ---------------------------------------------------------------------------
+import { renderHtmlReport } from './htmlRenderer';
 
 export interface GenerateResult {
 	reportPath: string;
+	markdownPath: string;
+	htmlPath: string;
 	dataPath: string;
 	data: ReportData;
 	markdown: string;
@@ -38,307 +41,384 @@ export interface GenerateResult {
 export function generateReport(options?: ReportGenerateCommandOptions): GenerateResult {
 	const findingsDir = resolveFindingsDir(options);
 	const scanResultsDir = resolveScanResultsDir(options);
-	const outputPath = resolveOutputPath(options);
-
-	// 1. Load findings
-	const findings = loadFindings(findingsDir);
-
-	// 2. Build executive summary
-	const executiveSummary = buildExecutiveSummary(findings);
-
-	// 3. Load recon summary from scan results
+	const paths = resolveReportPaths(options);
+	const records = loadFindings(findingsDir);
+	const findings = records.filter(record => record.classification === 'validated');
+	const candidates = records.filter(record => record.classification === 'candidate');
+	const observations = records.filter(record => record.classification === 'observation');
+	const executiveSummary = buildExecutiveSummary(records, findings, candidates, observations);
 	const reconSummary = buildReconSummary(scanResultsDir);
+	const engagementSummary = buildEngagementSummary(resolveEngagementFile(options));
+	const authorizationSummary = buildAuthorizationSummary(
+		resolveAuthorizationMatrixFile(options, scanResultsDir),
+	);
+	const pipelineStatusPath = resolvePipelineStatusPath(scanResultsDir, options?.pipelineStatus);
+	const timeline = buildTimeline(pipelineStatusPath);
+	const target = determineTarget(records, scanResultsDir, engagementSummary);
 
-	// 4. Build timeline from pipeline status
-	const timeline = buildTimeline(scanResultsDir, options?.pipelineStatus);
-
-	// 5. Determine target
-	const target = findings[0]?.target || extractTargetFromPipeline(scanResultsDir) || 'Unknown';
-
-	// 6. Assemble report data
 	const data: ReportData = {
 		generatedAt: new Date().toISOString(),
-		title: options?.title ?? 'Scylla Penetration Test Report',
+		title: options?.title ?? 'Scylla Security Assessment Report',
 		target,
 		executiveSummary,
+		records,
 		findings,
+		candidates,
+		observations,
 		reconSummary: reconSummary ?? undefined,
+		engagementSummary,
+		authorizationSummary,
 		timeline,
 	};
 
-	// 7. Render markdown
-	const markdown = renderMarkdownReport(data);
-
-	// 8. Write output
-	writeReport(markdown, outputPath);
-	const dataPath = outputPath.replace(/\.(md|html)$/, '.data.json');
-	writeReportData(data, dataPath);
-
-	return { reportPath: outputPath, dataPath, data, markdown };
-}
-
-// ---------------------------------------------------------------------------
-// Executive Summary
-// ---------------------------------------------------------------------------
-
-function buildExecutiveSummary(findings: FindingEntry[]): ExecutiveSummary {
-	const bySeverity: Record<string, number> = {};
-	for (const f of findings) {
-		bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
-	}
-
-	const riskLevel = determineRiskLevel(bySeverity);
+	const markdown = renderMarkdownReport(data, options);
+	const html = renderHtmlReport(data, options);
+	writeReport(markdown, paths.markdownPath);
+	writeReport(html, paths.htmlPath);
+	writeReportData(data, paths.dataPath);
 
 	return {
-		totalFindings: findings.length,
-		bySeverity,
-		riskLevel,
+		reportPath: paths.primaryPath,
+		markdownPath: paths.markdownPath,
+		htmlPath: paths.htmlPath,
+		dataPath: paths.dataPath,
+		data,
+		markdown,
 	};
 }
 
-function determineRiskLevel(bySeverity: Record<string, number>): string {
-	if ((bySeverity['critical'] ?? 0) > 0) { return 'Critical'; }
-	if ((bySeverity['high'] ?? 0) > 0) { return 'High'; }
-	if ((bySeverity['medium'] ?? 0) > 0) { return 'Medium'; }
-	if ((bySeverity['low'] ?? 0) > 0) { return 'Low'; }
-	return 'Informational';
+function buildExecutiveSummary(
+	records: FindingEntry[],
+	findings: FindingEntry[],
+	candidates: FindingEntry[],
+	observations: FindingEntry[],
+): ExecutiveSummary {
+	const bySeverity = countBySeverity(findings);
+	const candidateBySeverity = countBySeverity(candidates);
+	return {
+		totalFindings: findings.length,
+		totalRecords: records.length,
+		validatedFindings: findings.length,
+		candidates: candidates.length,
+		observations: observations.length,
+		bySeverity,
+		candidateBySeverity,
+		riskLevel: determineRiskLevel(bySeverity, findings.length),
+		riskBasis: 'validated-findings-only',
+	};
 }
 
-// ---------------------------------------------------------------------------
-// Recon Summary
-// ---------------------------------------------------------------------------
+function countBySeverity(findings: FindingEntry[]): Record<string, number> {
+	const result: Record<string, number> = {};
+	for (const finding of findings) {
+		result[finding.severity] = (result[finding.severity] ?? 0) + 1;
+	}
+	return result;
+}
+
+function determineRiskLevel(bySeverity: Record<string, number>, totalValidated: number): string {
+	if (totalValidated === 0) { return 'Not Established'; }
+	if ((bySeverity.critical ?? 0) > 0) { return 'Critical'; }
+	if ((bySeverity.high ?? 0) > 0) { return 'High'; }
+	if ((bySeverity.medium ?? 0) > 0) { return 'Medium'; }
+	if ((bySeverity.low ?? 0) > 0) { return 'Low'; }
+	return 'Informational';
+}
 
 function buildReconSummary(scanResultsDir: string): ReconSummary | null {
 	const files = listJsonFiles(scanResultsDir);
 	if (files.length === 0) { return null; }
 
-	let openPorts = 0;
-	let discoveredEndpoints = 0;
-	const technologies: string[] = [];
-	let hiddenPaths = 0;
+	const summary: ReconSummary = {
+		openPorts: 0,
+		pagesVisited: 0,
+		discoveredEndpoints: 0,
+		forms: 0,
+		parameters: 0,
+		javascriptRoutes: 0,
+		hiddenPaths: 0,
+		technologies: [],
+	};
 
 	for (const file of files) {
 		const data = loadJsonFile<Record<string, unknown>>(file);
 		if (!data) { continue; }
 		const basename = path.basename(file).toLowerCase();
 
-		// Port scan results
 		if (basename.includes('portscan')) {
 			const ports = data.openPorts ?? data.ports;
-			if (Array.isArray(ports)) {
-				openPorts += ports.length;
-			}
+			if (Array.isArray(ports)) { summary.openPorts += ports.length; }
 		}
 
-		// Crawl results
 		if (basename.includes('crawl')) {
-			const endpoints = data.endpoints ?? data.discoveredUrls ?? data.urls;
-			if (Array.isArray(endpoints)) {
-				discoveredEndpoints += endpoints.length;
-			}
+			const endpoints = firstArray(data.discovered, data.endpoints, data.discoveredUrls, data.urls);
+			if (endpoints) { summary.discoveredEndpoints += endpoints.length; }
+			summary.pagesVisited = Math.max(summary.pagesVisited, asFiniteNumber(data.pagesVisited));
+			const forms = firstArray(data.forms);
+			const parameters = firstArray(data.parameters);
+			const routes = firstArray(data.routeCandidates, data.jsRoutes);
+			if (forms) { summary.forms += forms.length; }
+			if (parameters) { summary.parameters += parameters.length; }
+			if (routes) { summary.javascriptRoutes += routes.length; }
 		}
 
-		// Tech detect results
 		if (basename.includes('techdetect') || basename.includes('tech')) {
-			const techs = data.technologies ?? data.detected;
-			if (Array.isArray(techs)) {
-				for (const t of techs) {
-					const name = typeof t === 'string' ? t : (t as Record<string, unknown>)?.name;
-					if (typeof name === 'string' && !technologies.includes(name)) {
-						technologies.push(name);
-					}
-				}
+			const technologies = firstArray(data.technologies, data.detected);
+			for (const entry of technologies ?? []) {
+				const name = typeof entry === 'string' ? entry : asString((entry as Record<string, unknown>)?.name);
+				if (name && !summary.technologies.includes(name)) { summary.technologies.push(name); }
 			}
 		}
 
-		// Dir fuzz results
+		if (basename.includes('wafdetect')) {
+			const detected = data.wafDetected === true;
+			summary.waf = {
+				detected,
+				name: asString(data.wafName) || undefined,
+				confidence: normalizeConfidence(data.confidence),
+				mode: asString(data.mode) || asString(data.probeMode) || undefined,
+			};
+		}
+
 		if (basename.includes('dirfuzz') || basename.includes('fuzz')) {
-			const hits = data.hits ?? data.discovered ?? data.paths;
-			if (Array.isArray(hits)) {
-				hiddenPaths += hits.length;
-			}
+			const hits = firstArray(data.hits, data.discovered, data.paths);
+			if (hits) { summary.hiddenPaths += hits.length; }
 		}
 	}
 
-	if (openPorts === 0 && discoveredEndpoints === 0 && technologies.length === 0 && hiddenPaths === 0) {
+	if (summary.openPorts === 0 && summary.pagesVisited === 0 && summary.discoveredEndpoints === 0 &&
+		summary.forms === 0 && summary.parameters === 0 && summary.javascriptRoutes === 0 &&
+		summary.hiddenPaths === 0 && summary.technologies.length === 0 && !summary.waf) {
 		return null;
 	}
-
-	return { openPorts, discoveredEndpoints, technologies, hiddenPaths };
+	return summary;
 }
 
-// ---------------------------------------------------------------------------
-// Timeline
-// ---------------------------------------------------------------------------
+function buildEngagementSummary(filePath?: string): EngagementSummary | undefined {
+	if (!filePath) { return undefined; }
+	const data = loadJsonFile<Record<string, unknown>>(filePath);
+	if (!data) { return undefined; }
+	return {
+		id: asString(data.id) || path.basename(filePath, '.json'),
+		name: asString(data.name) || 'Unnamed Engagement',
+		targets: asStringArray(data.targets),
+		scope: asStringArray(data.scope),
+		identities: firstArray(data.identities)?.length ?? 0,
+		resources: firstArray(data.resources)?.length ?? 0,
+		transactions: firstArray(data.transactions)?.length ?? 0,
+		filePath,
+	};
+}
 
-function buildTimeline(scanResultsDir: string, pipelineStatusPath?: string): TimelineEntry[] {
+function buildAuthorizationSummary(filePath?: string): AuthorizationSummary | undefined {
+	if (!filePath) { return undefined; }
+	const data = loadJsonFile<Record<string, unknown>>(filePath);
+	if (!data) { return undefined; }
+	return {
+		engagementId: asString(data.engagementId) || undefined,
+		identities: firstArray(data.identities)?.length ?? 0,
+		resources: firstArray(data.resources)?.length ?? 0,
+		cells: firstArray(data.cells)?.length ?? 0,
+		mismatches: firstArray(data.mismatches)?.length ?? 0,
+		filePath,
+	};
+}
+
+function buildTimeline(pipelineStatusPath: string): TimelineEntry[] {
 	const timeline: TimelineEntry[] = [];
+	const status = loadJsonFile<Record<string, unknown>>(pipelineStatusPath);
+	if (!status) { return timeline; }
 
-	// Try to load pipeline status
-	const statusPath = pipelineStatusPath
-		?? path.join(scanResultsDir, 'scylla-pipeline.status.json');
-
-	const status = loadJsonFile<Record<string, unknown>>(statusPath);
-	if (status && Array.isArray(status.steps)) {
-		for (const step of status.steps as Array<Record<string, unknown>>) {
-			timeline.push({
-				timestamp: (step.startedAt as string) ?? '',
-				event: `${step.cmd ?? step.resolvedCmd ?? 'unknown'}`,
-				status: (step.status as string) ?? 'unknown',
-			});
-		}
-
-		if (status.startedAt) {
-			timeline.unshift({
-				timestamp: status.startedAt as string,
-				event: 'Pipeline started',
-				status: 'ok',
-			});
-		}
-		if (status.finishedAt) {
-			timeline.push({
-				timestamp: status.finishedAt as string,
-				event: `Pipeline finished (${status.status})`,
-				status: (status.status as string) ?? 'unknown',
-			});
-		}
+	if (status.startedAt) {
+		timeline.push({ timestamp: asString(status.startedAt), event: 'Pipeline started', status: 'ok' });
 	}
-
+	for (const step of firstArray(status.steps) ?? []) {
+		const typed = step as Record<string, unknown>;
+		timeline.push({
+			timestamp: asString(typed.startedAt),
+			event: asString(typed.cmd) || asString(typed.resolvedCmd) || 'unknown',
+			status: asString(typed.status) || 'unknown',
+			durationMs: asFiniteNumber(typed.durationMs) || undefined,
+		});
+	}
+	if (status.finishedAt) {
+		timeline.push({
+			timestamp: asString(status.finishedAt),
+			event: `Pipeline finished (${asString(status.status) || 'unknown'})`,
+			status: asString(status.status) || 'unknown',
+		});
+	}
 	return timeline;
 }
 
-function extractTargetFromPipeline(scanResultsDir: string): string | null {
-	const statusPath = path.join(scanResultsDir, 'scylla-pipeline.status.json');
-	const status = loadJsonFile<Record<string, unknown>>(statusPath);
-	if (status && typeof status.target === 'string') {
-		return status.target;
-	}
-	return null;
+function determineTarget(records: FindingEntry[], scanResultsDir: string, engagement?: EngagementSummary): string {
+	return records.find(record => record.target)?.target
+		?? engagement?.targets[0]
+		?? extractTargetFromPipeline(scanResultsDir)
+		?? 'Unknown';
 }
 
-// ---------------------------------------------------------------------------
-// Markdown Renderer
-// ---------------------------------------------------------------------------
+function extractTargetFromPipeline(scanResultsDir: string): string | null {
+	const status = loadJsonFile<Record<string, unknown>>(path.join(scanResultsDir, 'scylla-pipeline.status.json'));
+	return status && typeof status.target === 'string' ? status.target : null;
+}
 
-function renderMarkdownReport(data: ReportData): string {
+function renderMarkdownReport(data: ReportData, options?: ReportGenerateCommandOptions): string {
 	const lines: string[] = [];
-
-	// Title
-	lines.push(`# ${data.title}`);
-	lines.push('');
+	lines.push(`# ${data.title}`, '');
 	lines.push(`**Generated:** ${data.generatedAt}`);
-	lines.push(`**Target:** \`${data.target}\``);
-	lines.push('');
-
-	// Executive Summary
-	lines.push('---');
-	lines.push('');
-	lines.push('## Executive Summary');
-	lines.push('');
+	lines.push(`**Target:** \`${data.target}\``, '');
+	lines.push('---', '', '## Executive Summary', '');
 	lines.push(`**Overall Risk Level:** ${data.executiveSummary.riskLevel}`);
-	lines.push(`**Total Findings:** ${data.executiveSummary.totalFindings}`);
-	lines.push('');
+	lines.push('> Overall risk is derived from **validated findings only**. Candidates and observations are tracked separately and do not establish impact.', '');
+	lines.push(`- **Validated findings:** ${data.executiveSummary.validatedFindings}`);
+	lines.push(`- **Candidates requiring validation:** ${data.executiveSummary.candidates}`);
+	lines.push(`- **Observations:** ${data.executiveSummary.observations}`);
+	lines.push(`- **Total security records:** ${data.executiveSummary.totalRecords}`, '');
 
-	if (Object.keys(data.executiveSummary.bySeverity).length > 0) {
-		lines.push('| Severity | Count |');
-		lines.push('|----------|-------|');
-		const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
-		for (const sev of severityOrder) {
-			const count = data.executiveSummary.bySeverity[sev];
-			if (count && count > 0) {
-				lines.push(`| ${severityIcon(sev)} ${capitalize(sev)} | ${count} |`);
-			}
+	appendSeverityTable(lines, 'Validated Findings by Severity', data.executiveSummary.bySeverity);
+	appendSeverityTable(lines, 'Candidate Severity (Provisional)', data.executiveSummary.candidateBySeverity);
+
+	appendRecordSection(lines, 'Validated Findings', data.findings, 'No validated findings were recorded.');
+	if (options?.includeCandidates !== false) {
+		appendRecordSection(lines, 'Candidates Requiring Validation', data.candidates,
+			'No candidates are awaiting validation.', true);
+	}
+	if (options?.includeObservations !== false) {
+		appendRecordSection(lines, 'Observations', data.observations, 'No standalone observations were recorded.', true);
+	}
+
+	if (data.engagementSummary || data.authorizationSummary) {
+		lines.push('---', '', '## Engagement & Authorization Context', '');
+		if (data.engagementSummary) {
+			const engagement = data.engagementSummary;
+			lines.push(`- **Engagement:** ${engagement.name} (\`${engagement.id}\`)`);
+			lines.push(`- **Targets:** ${engagement.targets.length > 0 ? engagement.targets.map(item => `\`${item}\``).join(', ') : 'None recorded'}`);
+			lines.push(`- **Scope:** ${engagement.scope.length > 0 ? engagement.scope.map(item => `\`${item}\``).join(', ') : 'None recorded'}`);
+			lines.push(`- **Identities / Resources / Transactions:** ${engagement.identities} / ${engagement.resources} / ${engagement.transactions}`);
 		}
-		// Any others not in the standard order
-		for (const [sev, count] of Object.entries(data.executiveSummary.bySeverity)) {
-			if (!severityOrder.includes(sev) && count > 0) {
-				lines.push(`| ${capitalize(sev)} | ${count} |`);
+		if (data.authorizationSummary) {
+			const matrix = data.authorizationSummary;
+			lines.push(`- **Authorization matrix:** ${matrix.cells} cells across ${matrix.identities} identities and ${matrix.resources} resources`);
+			lines.push(`- **Explicit expectation mismatches:** ${matrix.mismatches}`);
+			if (matrix.mismatches === 0) {
+				lines.push('- **Interpretation:** No explicit authorization-policy mismatch was observed in the recorded matrix. Unknown policy remains unknown.');
 			}
 		}
 		lines.push('');
 	}
 
-	// Findings Table
-	if (data.findings.length > 0) {
-		lines.push('---');
-		lines.push('');
-		lines.push('## Findings Overview');
-		lines.push('');
-		lines.push('| # | Severity | Title | Status | Target |');
-		lines.push('|---|----------|-------|--------|--------|');
-		for (let i = 0; i < data.findings.length; i++) {
-			const f = data.findings[i];
-			lines.push(`| ${i + 1} | ${severityIcon(f.severity)} ${capitalize(f.severity)} | ${f.title} | ${f.status} | \`${truncate(f.target, 40)}\` |`);
-		}
-		lines.push('');
-
-		// Detailed Findings
-		lines.push('---');
-		lines.push('');
-		lines.push('## Detailed Findings');
-		lines.push('');
-
-		for (let i = 0; i < data.findings.length; i++) {
-			const f = data.findings[i];
-			lines.push(`### ${i + 1}. ${f.title}`);
-			lines.push('');
-			lines.push(`- **ID:** ${f.id}`);
-			lines.push(`- **Severity:** ${severityIcon(f.severity)} ${capitalize(f.severity)}`);
-			lines.push(`- **Status:** ${f.status}`);
-			lines.push(`- **Target:** \`${f.target}\``);
-			if (f.tags.length > 0) {
-				lines.push(`- **Tags:** ${f.tags.map(t => `\`${t}\``).join(', ')}`);
-			}
-			lines.push('');
-			if (f.summary) {
-				lines.push(f.summary);
-				lines.push('');
-			}
-		}
-	}
-
-	// Recon Summary
 	if (data.reconSummary) {
-		lines.push('---');
-		lines.push('');
-		lines.push('## Reconnaissance Summary');
-		lines.push('');
-		lines.push(`- **Open Ports:** ${data.reconSummary.openPorts}`);
-		lines.push(`- **Discovered Endpoints:** ${data.reconSummary.discoveredEndpoints}`);
-		lines.push(`- **Hidden Paths (Dir Fuzz):** ${data.reconSummary.hiddenPaths}`);
-		if (data.reconSummary.technologies.length > 0) {
-			lines.push(`- **Technologies:** ${data.reconSummary.technologies.join(', ')}`);
+		const recon = data.reconSummary;
+		lines.push('---', '', '## Reconnaissance Summary', '');
+		lines.push(`- **Open Ports:** ${recon.openPorts}`);
+		lines.push(`- **Pages Visited:** ${recon.pagesVisited}`);
+		lines.push(`- **Discovered Endpoints:** ${recon.discoveredEndpoints}`);
+		lines.push(`- **Forms / Parameters / JS Routes:** ${recon.forms} / ${recon.parameters} / ${recon.javascriptRoutes}`);
+		lines.push(`- **Hidden Paths (Dir Fuzz):** ${recon.hiddenPaths}`);
+		if (recon.technologies.length > 0) { lines.push(`- **Technologies:** ${recon.technologies.join(', ')}`); }
+		if (recon.waf) {
+			lines.push(`- **WAF/Edge Observation:** ${recon.waf.detected ? recon.waf.name ?? 'Detected' : 'Not detected'}${recon.waf.confidence !== undefined ? ` (${Math.round(recon.waf.confidence * 100)}% confidence)` : ''}${recon.waf.mode ? `, mode=${recon.waf.mode}` : ''}`);
 		}
 		lines.push('');
 	}
 
-	// Timeline
 	if (data.timeline.length > 0) {
-		lines.push('---');
-		lines.push('');
-		lines.push('## Pipeline Timeline');
-		lines.push('');
-		lines.push('| Timestamp | Event | Status |');
-		lines.push('|-----------|-------|--------|');
+		lines.push('---', '', '## Pipeline Timeline', '');
+		lines.push('| Timestamp | Event | Status | Duration |');
+		lines.push('|-----------|-------|--------|----------|');
 		for (const entry of data.timeline) {
-			const ts = entry.timestamp ? formatTimestamp(entry.timestamp) : '-';
-			lines.push(`| ${ts} | ${entry.event} | ${statusIcon(entry.status)} ${entry.status} |`);
+			lines.push(`| ${entry.timestamp ? formatTimestamp(entry.timestamp) : '-'} | ${escapeTable(entry.event)} | ${statusIcon(entry.status)} ${entry.status} | ${entry.durationMs !== undefined ? `${entry.durationMs} ms` : '-'} |`);
 		}
 		lines.push('');
 	}
 
-	// Footer
-	lines.push('---');
-	lines.push('');
-	lines.push('*Generated by Scylla Reporting Engine | HikariSystem*');
-	lines.push('');
-
+	lines.push('---', '', '*Generated by Scylla Reporting Engine | HikariSystem*', '');
 	return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+function appendSeverityTable(lines: string[], title: string, counts: Record<string, number>): void {
+	if (Object.values(counts).every(count => count === 0)) { return; }
+	lines.push(`### ${title}`, '');
+	lines.push('| Severity | Count |', '|----------|-------|');
+	for (const severity of ['critical', 'high', 'medium', 'low', 'info']) {
+		const count = counts[severity] ?? 0;
+		if (count > 0) { lines.push(`| ${severityIcon(severity)} ${capitalize(severity)} | ${count} |`); }
+	}
+	lines.push('');
+}
+
+function appendRecordSection(
+	lines: string[],
+	title: string,
+	records: FindingEntry[],
+	emptyMessage: string,
+	showClassification = false,
+): void {
+	lines.push('---', '', `## ${title}`, '');
+	if (records.length === 0) {
+		lines.push(emptyMessage, '');
+		return;
+	}
+	lines.push('| # | Severity | Title | Classification | Confidence | Status | Target |');
+	lines.push('|---|----------|-------|----------------|------------|--------|--------|');
+	for (let i = 0; i < records.length; i++) {
+		const record = records[i];
+		lines.push(`| ${i + 1} | ${severityIcon(record.severity)} ${capitalize(record.severity)} | ${escapeTable(record.title)} | ${record.classification} | ${record.confidence !== undefined ? `${Math.round(record.confidence * 100)}%` : '-'} | ${record.status} | \`${truncate(record.target, 40)}\` |`);
+	}
+	lines.push('');
+
+	for (let i = 0; i < records.length; i++) {
+		const record = records[i];
+		lines.push(`### ${i + 1}. ${record.title}`, '');
+		lines.push(`- **ID:** ${record.id}`);
+		lines.push(`- **Severity:** ${severityIcon(record.severity)} ${capitalize(record.severity)}${record.classification !== 'validated' ? ' *(provisional until validation)*' : ''}`);
+		lines.push(`- **Classification:** ${record.classification}`);
+		lines.push(`- **Status:** ${record.status}`);
+		lines.push(`- **Target:** \`${record.target}\``);
+		if (record.confidence !== undefined) { lines.push(`- **Confidence:** ${Math.round(record.confidence * 100)}%`); }
+		if (record.source?.scanner) { lines.push(`- **Source scanner:** ${record.source.scanner}`); }
+		if (record.source?.command) { lines.push(`- **Source command:** \`${record.source.command}\``); }
+		if (record.source?.strategy) { lines.push(`- **Strategy:** ${record.source.strategy}`); }
+		if (record.actors?.attackerProfile) { lines.push(`- **Attacker profile:** ${record.actors.attackerProfile}`); }
+		if (record.actors?.baselineProfile) { lines.push(`- **Baseline profile:** ${record.actors.baselineProfile}`); }
+		if (record.actors?.resourceOwnerProfile) { lines.push(`- **Resource owner profile:** ${record.actors.resourceOwnerProfile}`); }
+		if (record.tags.length > 0) { lines.push(`- **Tags:** ${record.tags.map(tag => `\`${tag}\``).join(', ')}`); }
+		lines.push('');
+		if (showClassification && record.classification !== 'validated') {
+			lines.push('> This record is not a validated vulnerability and does not contribute to the report risk level.', '');
+		}
+		if (record.summary) { lines.push(record.summary, ''); }
+		if (record.evidence.length > 0) {
+			lines.push('**Evidence:**');
+			for (const evidence of record.evidence) { lines.push(`- ${evidence}`); }
+			lines.push('');
+		}
+	}
+}
+
+function firstArray(...values: unknown[]): unknown[] | undefined {
+	return values.find(Array.isArray) as unknown[] | undefined;
+}
+
+function asFiniteNumber(value: unknown): number {
+	const number = Number(value);
+	return Number.isFinite(number) ? number : 0;
+}
+
+function asString(value: unknown): string {
+	return typeof value === 'string' ? value.trim() : '';
+}
+
+function asStringArray(value: unknown): string[] {
+	return Array.isArray(value) ? value.map(asString).filter(Boolean) : [];
+}
+
+function normalizeConfidence(value: unknown): number | undefined {
+	const raw = Number(value);
+	if (!Number.isFinite(raw)) { return undefined; }
+	return Math.max(0, Math.min(1, raw > 1 && raw <= 100 ? raw / 100 : raw));
+}
 
 function severityIcon(severity: string): string {
 	switch (severity.toLowerCase()) {
@@ -346,7 +426,6 @@ function severityIcon(severity: string): string {
 		case 'high': return '🟠';
 		case 'medium': return '🟡';
 		case 'low': return '🔵';
-		case 'info': return '⚪';
 		default: return '⚪';
 	}
 }
@@ -361,19 +440,19 @@ function statusIcon(status: string): string {
 	}
 }
 
-function capitalize(s: string): string {
-	return s.charAt(0).toUpperCase() + s.slice(1);
+function capitalize(value: string): string {
+	return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function truncate(s: string, max: number): string {
-	return s.length > max ? s.slice(0, max - 3) + '...' : s;
+function truncate(value: string, max: number): string {
+	return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+function escapeTable(value: string): string {
+	return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
 function formatTimestamp(iso: string): string {
-	try {
-		const d = new Date(iso);
-		return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
-	} catch {
-		return iso;
-	}
+	try { return new Date(iso).toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z'); }
+	catch { return iso; }
 }

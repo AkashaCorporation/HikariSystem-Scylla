@@ -1,8 +1,8 @@
 {
   "name": "scylla-reporting",
   "displayName": "Scylla Reporting",
-  "description": "Penetration test report generation for Scylla Studio.",
-  "version": "0.1.0",
+  "description": "Lifecycle-aware security assessment reporting for Scylla Studio.",
+  "version": "0.2.0",
   "private": true,
   "license": "GPL-3.0-only",
   "engines": {
@@ -15,18 +15,18 @@
     "onCommand:scylla.reporting.generate",
     "onCommand:scylla.reporting.generateHeadless"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/extensionV3.js",
   "contributes": {
     "commands": [
       {
         "command": "scylla.reporting.generate",
-        "title": "Scylla: Generate Pentest Report",
-        "category": "Scylla"
+        "title": "Generate Security Assessment Report",
+        "category": "Scylla Reporting"
       },
       {
         "command": "scylla.reporting.generateHeadless",
-        "title": "Scylla: Generate Pentest Report (Headless)",
-        "category": "Scylla"
+        "title": "Generate Security Assessment Report (Headless)",
+        "category": "Scylla Reporting"
       }
     ]
   },
