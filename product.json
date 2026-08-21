@@ -1,9 +1,9 @@
 {
 	"nameShort": "Scylla",
 	"nameLong": "HikariSystem Scylla",
+	"scyllaVersion": "3.0.0",
 	"applicationName": "scylla",
 	"dataFolderName": ".scylla",
-	"quality": "stable",
 	"win32MutexName": "scylla",
 	"licenseName": "MIT",
 	"licenseUrl": "https://github.com/AkashaCorporation/HikariSystem-Scylla/blob/main/LICENSE.txt",

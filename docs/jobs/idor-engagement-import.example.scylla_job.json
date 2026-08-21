@@ -1,0 +1,70 @@
+{
+  "target": "https://api.example.test",
+  "outDir": ".scylla/pipeline-output/idor-engagement-example",
+  "quiet": true,
+  "scope": [
+    "api.example.test"
+  ],
+  "auth": {
+    "profiles": {
+      "user-a": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_USER_A_TOKEN"
+      },
+      "user-b": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_USER_B_TOKEN"
+      }
+    },
+    "loginAll": true,
+    "autoRefresh": true
+  },
+  "steps": [
+    {
+      "cmd": "scylla.engagement.createHeadless",
+      "args": {
+        "name": "IDOR Scanner Import Example",
+        "description": "Run an ownership-aware IDOR candidate scan and import its evidence into an engagement.",
+        "targets": ["${target}"],
+        "scope": ["api.example.test"],
+        "setActive": true
+      }
+    },
+    {
+      "cmd": "scylla.scanner.idorHeadless",
+      "args": {
+        "url": "${target}/api/orders/100",
+        "profiles": ["user-a", "user-b"],
+        "strategies": ["known-id-swap"],
+        "knownIds": {
+          "user-a": ["100"],
+          "user-b": ["200"]
+        },
+        "createFindings": true
+      },
+      "output": {
+        "path": "idor-candidates.json",
+        "format": "json"
+      },
+      "timeoutMs": 120000
+    },
+    {
+      "cmd": "scylla.engagement.recordTransactionHeadless",
+      "args": {
+        "scannerResultFile": "${outDir}/idor-candidates.json",
+        "scannerType": "idor"
+      },
+      "output": {
+        "path": "idor-import-summary.json",
+        "format": "json"
+      }
+    },
+    {
+      "cmd": "scylla.engagement.authorizationMatrixHeadless",
+      "output": {
+        "path": "authorization-matrix.json",
+        "format": "json"
+      }
+    }
+  ]
+}

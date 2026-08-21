@@ -28,6 +28,7 @@ const rawDirs = [
 
 	// Scylla tensive extensions
 	'extensions/scylla-auth',
+	'extensions/scylla-engagements',
 	'extensions/scylla-export',
 	'extensions/scylla-findings',
 	'extensions/scylla-http',
@@ -75,7 +76,6 @@ const rawDirs = [
 	'extensions/typescript-language-features',
 	'extensions/vscode-api-tests',
 	'extensions/vscode-colorize-tests',
-	'extensions/vscode-colorize-perf-tests',
 	'extensions/vscode-test-resolver',
 
 	'remote',

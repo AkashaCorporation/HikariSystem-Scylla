@@ -51,9 +51,6 @@
 		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./"
 	},
-	"dependencies": {
-		"hexcore-better-sqlite3": "file:../hexcore-better-sqlite3"
-	},
 	"devDependencies": {
 		"@types/node": "^18.0.0",
 		"@types/vscode": "^1.75.0",

@@ -24,8 +24,8 @@ export const DALFOX_PAYLOADS: DalfoxPayloads = {
 		`confirm('{canary}')`,
 		`(()=>alert('{canary}'))()`,
 		`window?.alert?.('{canary}')`,
-		`setTimeout('ale'+'rt("${canary}")')`,
-		`new Function('ale'+'rt("${canary}")')()`,
+		`setTimeout('ale'+'rt("{canary}")')`,
+		`new Function('ale'+'rt("{canary}")')()`,
 		`window[atob('YWxlcnQ=')]('{canary}')`,
 	],
 	htmlTemplates: [

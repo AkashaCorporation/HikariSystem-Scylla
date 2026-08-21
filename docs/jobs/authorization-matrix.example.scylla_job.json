@@ -1,0 +1,123 @@
+{
+  "target": "https://api.example.test",
+  "outDir": ".scylla/pipeline-output/authorization-matrix-example",
+  "quiet": true,
+  "scope": [
+    "api.example.test"
+  ],
+  "auth": {
+    "profiles": {
+      "user-a": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_USER_A_TOKEN"
+      },
+      "user-b": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_USER_B_TOKEN"
+      }
+    },
+    "loginAll": true,
+    "autoRefresh": true
+  },
+  "steps": [
+    {
+      "cmd": "scylla.engagement.createHeadless",
+      "args": {
+        "name": "Authorization Matrix Example",
+        "description": "Explicit cross-user authorization expectations for two owned resources.",
+        "targets": ["${target}"],
+        "scope": ["api.example.test"],
+        "setActive": true
+      }
+    },
+    {
+      "cmd": "scylla.engagement.addIdentityHeadless",
+      "args": {
+        "id": "user-a",
+        "displayName": "User A",
+        "role": "standard-user",
+        "authProfile": "user-a"
+      }
+    },
+    {
+      "cmd": "scylla.engagement.addIdentityHeadless",
+      "args": {
+        "id": "user-b",
+        "displayName": "User B",
+        "role": "standard-user",
+        "authProfile": "user-b"
+      }
+    },
+    {
+      "cmd": "scylla.engagement.registerResourceHeadless",
+      "args": {
+        "id": "order-100",
+        "type": "order",
+        "ownerIdentityId": "user-a",
+        "canonicalUrl": "${target}/api/orders/100",
+        "identifiers": ["100"]
+      }
+    },
+    {
+      "cmd": "scylla.engagement.registerResourceHeadless",
+      "args": {
+        "id": "order-200",
+        "type": "order",
+        "ownerIdentityId": "user-b",
+        "canonicalUrl": "${target}/api/orders/200",
+        "identifiers": ["200"]
+      }
+    },
+    {
+      "cmd": "scylla.engagement.probeHeadless",
+      "args": {
+        "identityId": "user-a",
+        "resourceId": "order-100",
+        "method": "GET",
+        "kind": "baseline",
+        "expectedAccess": "allow",
+        "notes": "Owner baseline for order 100."
+      }
+    },
+    {
+      "cmd": "scylla.engagement.probeHeadless",
+      "args": {
+        "identityId": "user-b",
+        "resourceId": "order-100",
+        "method": "GET",
+        "kind": "probe",
+        "expectedAccess": "deny",
+        "notes": "Explicit policy: User B must not read User A's order."
+      }
+    },
+    {
+      "cmd": "scylla.engagement.probeHeadless",
+      "args": {
+        "identityId": "user-b",
+        "resourceId": "order-200",
+        "method": "GET",
+        "kind": "baseline",
+        "expectedAccess": "allow",
+        "notes": "Owner baseline for order 200."
+      }
+    },
+    {
+      "cmd": "scylla.engagement.probeHeadless",
+      "args": {
+        "identityId": "user-a",
+        "resourceId": "order-200",
+        "method": "GET",
+        "kind": "probe",
+        "expectedAccess": "deny",
+        "notes": "Explicit policy: User A must not read User B's order."
+      }
+    },
+    {
+      "cmd": "scylla.engagement.authorizationMatrixHeadless",
+      "output": {
+        "path": "authorization-matrix.json",
+        "format": "json"
+      }
+    }
+  ]
+}

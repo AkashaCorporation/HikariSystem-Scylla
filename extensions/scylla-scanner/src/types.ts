@@ -5,6 +5,19 @@
 
 export type OutputFormat = 'json' | 'md';
 export type VulnSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type FindingState = 'observation' | 'candidate' | 'validated';
+
+export interface FindingSource {
+	scanner?: string;
+	command?: string;
+	strategy?: string;
+}
+
+export interface FindingActors {
+	attackerProfile?: string;
+	baselineProfile?: string;
+	resourceOwnerProfile?: string;
+}
 
 export interface CommandOutputOptions {
 	path: string;
@@ -27,6 +40,12 @@ export interface VulnFinding {
 	evidence: string;
 	confidence: number;
 	details: string;
+	/** Evidence lifecycle. Scanner output should normally begin as a candidate. */
+	state?: FindingState;
+	/** Structured provenance for downstream agents/reporting. */
+	source?: FindingSource;
+	/** Identities involved in authorization/business-logic comparisons. */
+	actors?: FindingActors;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,19 +466,24 @@ export interface CrawlResultFile {
 // IDOR Scanner (Scylla 2.0)
 // ---------------------------------------------------------------------------
 
-export type IdorStrategy = 'sequential' | 'uuid-swap' | 'zero-id' | 'remove-param' | 'method-swap';
+export type IdorStrategy = 'known-id-swap' | 'sequential' | 'uuid-swap' | 'zero-id' | 'remove-param' | 'method-swap';
 export type IdorCompareField = 'body_hash' | 'status_code' | 'content_length';
+export type IdorOwnershipSource = 'knownIds' | 'heuristic';
 
 export interface IdorScanCommandOptions {
 	url?: string;
 	crawlResultFile?: string;
-	/** Auth profile names — requires at least 2 for cross-user IDOR testing */
+	/** Auth profile names. profiles[0] is attacker; profiles[1] is victim/baseline. */
 	profiles?: string[];
 	strategies?: IdorStrategy[];
 	compareFields?: IdorCompareField[];
 	/** Regex patterns to detect sensitive data in responses */
 	sensitivePatterns?: string[];
-	/** Known UUID values for uuid-swap strategy (one per profile) */
+	/**
+	 * Resource identifiers known to belong to each auth profile. When a victim
+	 * profile has known IDs, Scylla adds deterministic known-id-swap tests before
+	 * heuristic mutations. IDs may be numeric, UUID, slug-like, etc.
+	 */
 	knownIds?: Record<string, string[]>;
 	delayMs?: number;
 	timeoutMs?: number;
@@ -471,18 +495,22 @@ export interface IdorScanCommandOptions {
 }
 
 export interface IdorFinding extends VulnFinding {
-	/** Original URL that was tested */
+	/** Original URL that established the endpoint shape. */
 	originalUrl: string;
-	/** Modified URL/request used for the test */
+	/** Exact victim-resource URL replayed under both profiles. */
 	testedUrl: string;
-	/** Which strategy detected this IDOR */
 	strategy: IdorStrategy;
-	/** Original response metadata (the request owner's response) */
+	/** Victim/baseline response metadata for testedUrl. Kept under the legacy name for compatibility. */
 	originalResponse: { statusCode: number; bodyHash: string; contentLength: number };
-	/** Modified response metadata (cross-user response) */
+	/** Attacker response metadata for the same testedUrl. */
 	modifiedResponse: { statusCode: number; bodyHash: string; contentLength: number };
-	/** Sensitive data patterns found in the cross-user response */
+	/** Optional attacker response metadata on originalUrl. */
+	attackerBaselineResponse?: { statusCode: number; bodyHash: string; contentLength: number };
 	sensitiveDataFound: string[];
+	attackerProfile: string;
+	baselineProfile: string;
+	resourceOwnerProfile?: string;
+	ownershipSource: IdorOwnershipSource;
 }
 
 export interface IdorScanResult {
@@ -514,15 +542,12 @@ export interface PrivescScanCommandOptions {
 }
 
 export interface PrivescFinding extends VulnFinding {
-	/** The admin-only endpoint that was accessed */
+	/** The high-privilege endpoint that was compared. */
 	adminEndpoint: string;
-	/** HTTP method used */
 	method: string;
-	/** Response when accessed with admin profile */
 	adminResponse: { statusCode: number; contentLength: number };
-	/** Response when accessed with low-priv profile */
 	lowPrivResponse: { statusCode: number; contentLength: number };
-	/** Whether the low-priv user got the same content as admin */
+	/** Response-level equivalence only; not by itself proof of authorization impact. */
 	fullAccess: boolean;
 }
 

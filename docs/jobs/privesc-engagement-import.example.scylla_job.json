@@ -1,0 +1,66 @@
+{
+  "target": "https://api.example.test",
+  "outDir": ".scylla/pipeline-output/privesc-engagement-example",
+  "quiet": true,
+  "scope": [
+    "api.example.test"
+  ],
+  "auth": {
+    "profiles": {
+      "admin": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_ADMIN_TOKEN"
+      },
+      "user": {
+        "type": "bearer",
+        "authorization": "Bearer REPLACE_USER_TOKEN"
+      }
+    },
+    "loginAll": true,
+    "autoRefresh": true
+  },
+  "steps": [
+    {
+      "cmd": "scylla.engagement.createHeadless",
+      "args": {
+        "name": "PrivEsc Scanner Import Example",
+        "description": "Run the read-only cross-role scanner and import candidates into an engagement.",
+        "targets": ["${target}"],
+        "scope": ["api.example.test"],
+        "setActive": true
+      }
+    },
+    {
+      "cmd": "scylla.scanner.privescHeadless",
+      "args": {
+        "url": "${target}",
+        "highPrivProfile": "admin",
+        "lowPrivProfile": "user",
+        "createFindings": true
+      },
+      "output": {
+        "path": "privesc-candidates.json",
+        "format": "json"
+      },
+      "timeoutMs": 120000
+    },
+    {
+      "cmd": "scylla.engagement.recordTransactionHeadless",
+      "args": {
+        "scannerResultFile": "${outDir}/privesc-candidates.json",
+        "scannerType": "privesc"
+      },
+      "output": {
+        "path": "privesc-import-summary.json",
+        "format": "json"
+      }
+    },
+    {
+      "cmd": "scylla.engagement.authorizationMatrixHeadless",
+      "output": {
+        "path": "authorization-matrix.json",
+        "format": "json"
+      }
+    }
+  ]
+}
