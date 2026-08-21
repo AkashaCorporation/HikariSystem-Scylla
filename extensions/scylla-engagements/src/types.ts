@@ -166,6 +166,10 @@ export interface ProbeOptions extends EngagementIdOptions {
 	confidence?: number;
 	notes?: string;
 	tags?: string[];
+	/** Include the response body in the command result. The full body is always kept in the response artifact. */
+	includeResponseBody?: boolean;
+	/** Include sanitized response headers in the command result. */
+	includeResponseHeaders?: boolean;
 	/**
 	 * State-changing methods (POST/PUT/PATCH/DELETE and other non-safe verbs) are
 	 * blocked unless this flag is explicitly true. Scope/rate-limit enforcement
@@ -187,13 +191,29 @@ export interface ProbeResponseData {
 	finalUrl: string;
 }
 
+/** Compact-by-default command result; full evidence remains file-backed. */
+export interface ProbeResponseSummary {
+	statusCode: number;
+	statusMessage: string;
+	finalUrl: string;
+	contentType?: string;
+	bodyBytes: number;
+	bodyHash: string;
+	truncated: boolean;
+	elapsedMs: number;
+	redirected: boolean;
+	redirectCount: number;
+	headers?: Record<string, string | string[]>;
+	bodyText?: string;
+}
+
 export interface ProbeResult {
 	generatedAt: string;
 	engagementId: string;
 	identityId: string;
 	resourceId?: string;
 	transaction: EngagementTransaction;
-	response: ProbeResponseData;
+	response: ProbeResponseSummary;
 	responseFile?: string;
 }
 
