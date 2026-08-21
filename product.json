@@ -1,6 +1,7 @@
 {
 	"nameShort": "Scylla",
 	"nameLong": "HikariSystem Scylla",
+	"scyllaVersion": "3.0.0",
 	"applicationName": "scylla",
 	"dataFolderName": ".scylla",
 	"win32MutexName": "scylla",
