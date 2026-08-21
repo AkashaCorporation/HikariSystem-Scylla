@@ -5,270 +5,390 @@
 </p>
 
 <p align="center">
-  <strong>A comprehensive offensive security and penetration testing IDE built on Code-OSS</strong>
+  <strong>Headless-first offensive security experimentation IDE for web/API authorization, business logic, evidence collection, and repeatable security workflows.</strong>
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> |
-  <a href="#extensions">Extensions</a> |
-  <a href="#authentication-engine">Authentication</a> |
-  <a href="#automation-pipeline">Automation</a> |
-  <a href="#installation">Installation</a> |
-  <a href="#usage">Usage</a> |
-  <a href="#license">License</a>
+  <strong>Product target:</strong> Scylla 3.0.0 — <em>"Engagement Foundations"</em><br>
+  <strong>Status:</strong> pre-release; Windows ZIP packaging is being validated before the 3.0.0 tag.
 </p>
 
 <p align="center">
-  <code>web pentesting</code> &middot; <code>bug bounty</code> &middot; <code>access control</code> &middot; <code>session management</code> &middot; <code>IDOR scanner</code> &middot; <code>headless automation</code> &middot; <code>vulnerability scanners</code> &middot; <code>offensive pipeline</code> &middot; <code>report composer</code>
+  <code>authorization testing</code> &middot; <code>bug bounty</code> &middot; <code>engagement modeling</code> &middot; <code>multi-profile auth</code> &middot; <code>evidence provenance</code> &middot; <code>headless jobs</code> &middot; <code>IDOR</code> &middot; <code>privilege boundaries</code>
 </p>
 
 ---
 
-## Overview
+## Why Scylla 3.0
 
-**HikariSystem Scylla** is a state-of-the-art offensive security and penetration testing IDE derived from the HexCore codebase and built on top of the Code-OSS application shell. While HexCore focused on binary reverse engineering, decompilation, and emulation, Scylla shifts the focus entirely to **web vulnerability hunting, automated reconnaissance, access control evaluation, and penetration testing workflows**.
+Scylla started as a Code-OSS-derived offensive security IDE built from the HexCore codebase. The 2.x line established reconnaissance, authentication, HTTP tooling, vulnerability scanners, jobs, findings, and reporting.
 
-Version 2.0 **"Hydra"** is designed specifically to target complex access control, authorization, and business logic flaws — the critical class of bugs that unauthenticated automated scanners completely miss. By integrating a multi-profile session manager, auth-aware pipeline runner, high-performance scanners, and tactical reporting tools, Scylla provides security professionals with a unified command deck to run, automate, and document offensive operations.
+**Scylla 3.0 changes the core model.** Instead of treating an HTTP status code, response length, or scanner heuristic as a vulnerability, Scylla now models the engagement itself: identities, resources, ownership, transactions, expected access, observed access, evidence, and provenance.
 
-> [!IMPORTANT]
-> **What makes Scylla different:**
-> - **Auth-First Vulnerability Hunting:** Automate multi-role session orchestration to find complex IDOR, Privilege Escalation, and Mass Assignment flaws.
-> - **Zero-Config Native Scanners:** Integrated port scanners, directory fuzzers, crawler suites, and vulnerability engines out of the box (no external tool setups required).
-> - **Offensive Automation Pipelines:** Define complete operations in a single `.scylla_job.json` file, with conditional branching and priority queueing.
-> - **Scylla Command Deck Dashboard:** A beautiful, responsive starting hub for running diagnostics, choosing fuzzing presets, browsing tactical wordlists, and orchestrating pentests.
+The goal is to make Scylla a precise experimentation harness for both human researchers and strong agentic models:
 
----
-
-## Features
-
-### 📡 Automated Reconnaissance (`scylla-recon`)
-- **Port Scanner** — Async multi-threaded TCP port scanner with service banner grabbing.
-- **Web Crawler** — High-performance crawler with deep page traversal and intelligent scope constraints (domain, host, wildcard).
-- **Directory Fuzzing** — Multi-threaded directory and file fuzzer with advanced status filtering and recursive scanning.
-- **Technology Detection** — Passive fingerprinting of server headers, cookies, scripts, and meta tags to identify frameworks and infrastructure.
-- **WAF Fingerprinting** — Active and passive identification of Web Application Firewalls (Cloudflare, Akamai, AWS WAF, Imperva, etc.).
-
-### 🛡️ Vulnerability Scanning Suite (`scylla-scanner`)
-- **SQL Injection (SQLi)** — In-depth parameter payload testing for error-based, boolean-based, and time-based SQL injection.
-- **Cross-Site Scripting (XSS)** — Advanced Dalfox & XSStrike hybrid engine. Employs DOM/AST validation, fuzzy WAF evasion scoring, intelligent payload mutation, and rate-limiting.
-- **Local File Inclusion (LFI)** — Directory traversal payload testing with LFI exploitation utilities (reading log files, wrapping, base64 filters).
-- **Template Injection (SSTI)** — Detecting server-side template engine execution (Jinja2, Twig, Freemarker, Velocity) with payload testing.
-- **CORS Misconfiguration** — Active probing for trust-origin wildcard bypasses and credential leakage patterns.
-- **SSRF Detection** — Server-Side Request Forgery auditing with out-of-band (OOB) DNS/HTTP callback triggers.
-- **JWT Attack Suite** — JWT header manipulation, key spoofing, signature stripping (the `none` algorithm), and secret brute-forcing.
-- **GraphQL Security** — Automatic schema introspection query probes, field suggestions harvesting, query depth auditing, and directive injection.
-
-### 🔑 Authentication & Session Engine (`scylla-auth`)
-- **Multi-Profile Login** — Declare multiple authenticated user sessions (e.g., Administrator, Standard User, Anonymous) inside your pipeline.
-- **Persistent Cookie Jars** — Session preservation across multiple scans, ensuring continuous authenticated states.
-- **CSRF Token Extractor** — Automatic parsing of HTML headers, forms, and cookies (`meta[name="csrf-token"]`, `#csrf`, custom fields) to inject fresh tokens dynamically into active fuzzing payloads.
-- **Auto-Refresh Handlers** — Smart recovery and re-authentication on `401 Unauthorized` or `403 Forbidden` responses during automated operations.
-
-### 🔌 Tactical HTTP Suite (`scylla-http`)
-- **HTTP Request Execution** — Run HTTP requests directly from `.http` file-backed artifacts.
-- **Custom Hosts Resolution** — In-editor DNS overrides for testing staging/virtual hosts without editing system `/etc/hosts` files.
-- **Intruder/Repeater Capabilities** — Easily replay, edit, and bulk-send requests with payload tables and real-time response diffs.
-
-### 📂 Wordlist Manager (`scylla-wordlists`)
-- **Curated Wordlists** — Out-of-the-box tactical wordlists for subdomains, directory fuzzing, default credentials, API endpoints, and common payloads.
-- **Preview & Filter** — In-editor wordlist browsing, line slicing, search filtering, and custom path resolving for headless engines.
-
-### 📊 Report Composer & Exporter (`scylla-reporting`, `scylla-export`)
-- **Findings Exporter** — One-click export of findings into standard JSON, CSV, and SARIF 2.1 formats for seamless SIEM/pipeline ingestion.
-- **Pentest Report Generator** — Aggregate findings, evidence, HTTP transactions, and severity scores into high-end, client-ready Markdown or PDF reports complete with a Table of Contents.
-
----
-
-## Extensions
-
-HikariSystem Scylla is organized in a highly modular extension structure inside `extensions/`.
-
-### 🛠️ Scylla Native Modules
-
-| Extension | Version | Description |
-|-----------|---------|-------------|
-| **Scylla Recon** | 0.2.0 | Native reconnaissance workflows: port scanning, web crawling, directory fuzzing, technology detection, and WAF fingerprinting. |
-| **Scylla Scanner** | 2.1.0 | Native vulnerability scanners: SQLi, XSS (Hybrid Engine), LFI, SSTI, CORS, SSRF, JWT, GraphQL, DOM XSS, secrets detection, and more. |
-| **Scylla HTTP** | 0.1.0 | HTTP request execution, replay, repeater, and file-backed request artifacts (.http) for the Scylla workbench. |
-| **Scylla Wordlists** | 0.1.0 | Built-in wordlist manager for directory fuzzing, parameter discovery, and credential testing. |
-| **Scylla Export** | 0.1.0 | Export findings to JSON, CSV, and SARIF 2.1 formats for integration with external tools. |
-| **Scylla Reporting**| 0.1.0 | Penetration test report generation and composer. |
-| **Scylla Findings** | 0.1.0 | Interactive security findings tree view, lifecycle tracker, and vulnerability cataloger. |
-| **Scylla Jobs** | 0.2.0 | Headless automation pipeline runner for Scylla jobs (`.scylla_job.json`). |
-| **Scylla Theme** | 2.0.0 | Cyberpunk dark themes (including Scylla Hydra Crimson v2) with sleek custom CSS injection. |
-
-### 🧩 Legacy Retained Modules (HexCore Compatibility)
-These eight lightweight utility modules are preserved to maintain full automation and scripting compatibility with HexCore-style jobs:
-
-- `hexcore-hashcalc` — MD5 / SHA-1 / SHA-256 / SHA-512 file hashing with VirusTotal lookup.
-- `hexcore-strings` — ASCII/UTF-16 string extractor with multi-byte XOR deobfuscation.
-- `hexcore-base64` — Detects and decodes Base64 payloads dynamically.
-- `hexcore-yara` — High-speed YARA rule matching with built-in anti-analysis signature packs.
-- `hexcore-ioc` — Automated Indicator of Compromise extraction (IPs, URLs, domains, registry paths).
-- `hexcore-filetype` — Magic bytes signature detection.
-- `hexcore-common` — Shared helper libraries.
-- `hexcore-better-sqlite3` — Native SQLite3 bindings for logging and finding persistence.
-
----
-
-## Authentication Engine
-
-The **Scylla Auth Engine** enables automated session hijacking and authenticated scanning. By configuring login profiles, Scylla authenticates upfront and manages session states in the background:
-
-```
-[Target Application] 
-   ↑
-   ├─ (Profile: Administrator) ──→ [Cookie Jar A] ──→ (Automated CSRF Token Injection)
-   ├─ (Profile: Standard User)  ──→ [Cookie Jar B] ──→ (Automatic Auth-Header Refresh)
-   └─ (Profile: Anonymous)      ──→ [No Cookies]
+```text
+Engagement
+   ↓
+Identity + Resource + Explicit Policy
+   ↓
+Governed Experiment
+   ↓
+HTTP / Scanner Evidence
+   ↓
+Transaction + Provenance
+   ↓
+Observation
+   ↓
+Candidate
+   ↓
+Validated Finding
 ```
 
-When scanning for **IDOR** or **Privilege Escalation**, the Scanner uses these authenticated channels to replay requests across different security contexts and diff the results to pinpoint authorization gaps.
+A scanner can discover something suspicious. It should not silently decide the application's authorization policy for you.
 
 ---
 
-## Automation Pipeline
+## Core principles
 
-Scylla provides headless batch testing via `.scylla_job.json` files. The workspace watcher automatically detects these files and queues them in Scylla's priority scheduler.
+### Evidence before conclusions
 
-### 📝 Example `.scylla_job.json`
-Below is a complete multi-profile automation script targeting an API and looking for access control bugs:
+Scylla separates three states:
+
+- **Observation** — something happened and evidence was recorded.
+- **Candidate** — the evidence is suspicious enough to deserve authorization/business-logic review.
+- **Validated finding** — policy and security impact have actually been confirmed.
+
+### Identity is part of the evidence
+
+Authorization results are meaningless if Scylla cannot prove which session produced them. Findings and transactions therefore preserve attacker, baseline, resource-owner, scanner, command, and strategy provenance where available.
+
+### Unknown policy stays unknown
+
+A resource being owned by User A does not automatically mean User B must be denied. Shared resources, teams, delegation, administrative roles, and support workflows can all be legitimate. Scylla only marks an authorization mismatch when an explicit expectation exists.
+
+### Safe experiments by default
+
+Engagement probes allow `GET`, `HEAD`, and `OPTIONS` by default. State-changing methods require explicit `allowStateChange: true`. Egress can also be constrained by the shared Scope + Rate-Limit Governor.
+
+---
+
+## Scylla Engagements
+
+`scylla-engagements` is the authorization-context layer introduced for 3.0. It stores engagement state under `.scylla/engagements/` using a JSON backend behind a command/store abstraction that can later move to the updated SQLite engine.
+
+An engagement can model:
+
+- target and scope;
+- identities and their `scylla-auth` profiles;
+- resources and known ownership;
+- canonical URLs and identifiers;
+- baseline, probe, replay, and observation transactions;
+- expected access (`allow`, `deny`, `unknown`);
+- observed access (`allowed`, `denied`, `unknown`);
+- response artifact paths, status, body hash, and length;
+- confidence, mutation context, parent/baseline links, notes, and tags.
+
+### Headless engagement commands
+
+```text
+scylla.engagement.createHeadless
+scylla.engagement.getHeadless
+scylla.engagement.listHeadless
+scylla.engagement.setActiveHeadless
+scylla.engagement.addIdentityHeadless
+scylla.engagement.registerResourceHeadless
+scylla.engagement.recordTransactionHeadless
+scylla.engagement.probeHeadless
+scylla.engagement.authorizationMatrixHeadless
+```
+
+### Governed probe example
 
 ```json
 {
-  "target": "http://localhost:3000",
-  "outDir": ".scylla/pipeline-output",
-  "auth": {
-    "profiles": [
-      {
-        "name": "admin",
-        "loginUrl": "/api/login",
-        "credentials": { "email": "admin@example.com", "password": "admin123" }
-      },
-      {
-        "name": "user",
-        "loginUrl": "/api/login",
-        "credentials": { "email": "user@example.com", "password": "user123" }
-      }
-    ]
-  },
-  "steps": [
-    {
-      "cmd": "scylla.recon.crawlHeadless",
-      "args": {
-        "url": "${target}",
-        "maxDepth": 3,
-        "maxPages": 200,
-        "scope": "host"
-      }
-    },
-    {
-      "cmd": "scylla.scanner.idorHeadless",
-      "args": {
-        "crawlResultFile": "${outDir}/01-scylla-recon-crawlheadless.json",
-        "attackerProfile": "user",
-        "victimProfile": "admin",
-        "createFindings": true
-      },
-      "continueOnError": true
-    },
-    {
-      "cmd": "scylla.scanner.privescHeadless",
-      "args": {
-        "crawlResultFile": "${outDir}/01-scylla-recon-crawlheadless.json",
-        "unprivilegedProfile": "user",
-        "createFindings": true
-      },
-      "continueOnError": true
-    },
-    {
-      "cmd": "scylla.reporting.generateHeadless",
-      "args": {
-        "title": "Access Control Vulnerability Report"
-      }
-    }
-  ]
+  "identityId": "user-b",
+  "resourceId": "order-100",
+  "method": "GET",
+  "kind": "probe",
+  "expectedAccess": "deny"
 }
+```
+
+The probe resolves the identity's auth profile, sends through `scylla-http`, records the response as evidence, and adds a transaction to the active engagement. If an identity references an invalid session, the probe fails rather than quietly becoming anonymous.
+
+See [`docs/SCYLLA_ENGAGEMENTS.md`](docs/SCYLLA_ENGAGEMENTS.md) for the full model and command examples.
+
+---
+
+## Authorization Matrix
+
+Scylla can construct an identity × resource matrix from explicit policy and observed transactions:
+
+```text
+                 Resource A        Resource B
+User A           allow / allowed   deny / denied
+User B           deny  / allowed   allow / allowed
+                       ^ mismatch
+```
+
+A mismatch is meaningful only when the expected policy is known. Cells with `expectedAccess: "unknown"` remain evidence for review and are not promoted into vulnerabilities simply because a request returned `200`.
+
+Example job: [`docs/jobs/authorization-matrix.example.scylla_job.json`](docs/jobs/authorization-matrix.example.scylla_job.json).
+
+---
+
+## Authentication & HTTP evidence
+
+### `scylla-auth`
+
+Scylla supports multiple authenticated profiles for the same engagement, including form/API/OAuth/bearer/basic/anonymous-style contexts depending on the configured profile.
+
+The current authentication path provides:
+
+- profile and session management;
+- cookie jars;
+- domain-scoped credential resolution;
+- auth-aware headless requests;
+- governed login egress;
+- reusable identities for scanners and engagement probes.
+
+### `scylla-http`
+
+The HTTP layer is the egress chokepoint for governed experiments. It supports request execution, file-backed artifacts, replay-oriented workflows, response persistence, custom host resolution, and scope-aware redirects.
+
+Persisted evidence redacts common credentials from headers and request-body fields, including authorization headers, cookies, API keys, tokens, passwords, and client secrets. Response bodies are preserved because they may be the evidence being investigated.
+
+---
+
+## Scope + Rate-Limit Governor
+
+Scylla interacts with live targets, so the 3.0 line includes a shared governor used across HTTP, authentication, redirects, and raw TCP scanning.
+
+It can enforce:
+
+- exact and wildcard in-scope host patterns;
+- per-host token-bucket rate limits;
+- global concurrency limits;
+- consent-gated automatic job execution;
+- engagement-scoped target publication.
+
+Dropping a `.scylla_job.json` into a workspace is not treated as implicit consent to immediately attack its target.
+
+---
+
+## Authorization-focused scanners
+
+### IDOR
+
+The IDOR path is now ownership-aware and evidence-driven. It can use known resource identifiers associated with profiles, collect a victim/owner baseline, replay the same tested resource as another identity, and compare the resulting evidence.
+
+A suspicious comparison becomes a **candidate**, not a validated finding. Known ownership strengthens provenance; it does not automatically prove denial policy.
+
+Example import job: [`docs/jobs/idor-engagement-import.example.scylla_job.json`](docs/jobs/idor-engagement-import.example.scylla_job.json).
+
+### Privilege escalation
+
+The current PrivEsc path performs read-only cross-role comparisons by default. A high-privilege baseline and low-privilege replay can establish suspicious response equivalence, but endpoint names or a `2xx` response alone are not treated as proof of broken access control.
+
+Example import job: [`docs/jobs/privesc-engagement-import.example.scylla_job.json`](docs/jobs/privesc-engagement-import.example.scylla_job.json).
+
+### Other scanner families
+
+Scylla also retains broader web/API testing capabilities including SQL injection, XSS, LFI, SSTI, CORS, SSRF, JWT, GraphQL, Mass Assignment, and related discovery/validation utilities. These families are progressively being moved toward the same evidence/provenance standard used by the authorization work.
+
+---
+
+## Reconnaissance
+
+`scylla-recon` provides native reconnaissance workflows such as:
+
+- TCP port scanning and banner collection;
+- web crawling;
+- directory/file discovery;
+- technology detection;
+- WAF fingerprinting.
+
+Raw TCP scanning participates in the same engagement scope/rate/concurrency controls when the governor is configured.
+
+---
+
+## Findings, reporting, and export
+
+### `scylla-findings`
+
+Findings now support structured lifecycle and provenance fields rather than relying on status-code-derived severity.
+
+Important concepts include:
+
+- classification: `observation`, `candidate`, `validated`;
+- confidence;
+- source scanner/command/strategy;
+- attacker/baseline/resource-owner actors;
+- evidence links and tags.
+
+### Reporting/export
+
+Scylla retains reporting and export workflows for Markdown-oriented pentest reports and machine-readable formats such as JSON, CSV, and SARIF where supported by the corresponding extensions.
+
+---
+
+## Headless Jobs
+
+`.scylla_job.json` remains the main orchestration format for repeatable workflows. Engagement commands are registered as first-class job capabilities, allowing a job to create an engagement, add identities/resources, execute governed probes, import scanner evidence, and build an authorization matrix.
+
+Typical authorization workflow:
+
+```text
+Create engagement
+    ↓
+Add identities + auth profiles
+    ↓
+Register owned resources
+    ↓
+Run explicit baseline/probe experiments
+    ↓
+Import scanner evidence when useful
+    ↓
+Build authorization matrix
+    ↓
+Review mismatches/candidates
+    ↓
+Promote only validated findings
+```
+
+Shipped examples:
+
+- [`authorization-matrix.example.scylla_job.json`](docs/jobs/authorization-matrix.example.scylla_job.json)
+- [`idor-engagement-import.example.scylla_job.json`](docs/jobs/idor-engagement-import.example.scylla_job.json)
+- [`privesc-engagement-import.example.scylla_job.json`](docs/jobs/privesc-engagement-import.example.scylla_job.json)
+
+---
+
+## Agent-oriented workflows
+
+Scylla is intentionally headless-first so an agent can operate on typed commands and persisted evidence rather than screen-scraping the IDE.
+
+Repository guidance for agents lives in:
+
+- [`AGENTS.md`](AGENTS.md)
+- [`.agent/skills/scylla/SKILL.md`](.agent/skills/scylla/SKILL.md)
+
+The intended division of responsibility is simple:
+
+```text
+Scylla
+  = controlled experiment execution
+  + scope/auth enforcement
+  + evidence persistence
+  + reproducible state
+
+Agent / Researcher
+  = hypothesis formation
+  + policy interpretation
+  + impact reasoning
+  + finding validation
 ```
 
 ---
 
-## Installation
+## Extension layout
 
-### Prerequisites
+Scylla is modular. Product versioning and extension package versioning are intentionally separate.
 
-| Requirement | Minimum Version | Verification Command |
-|---|---|---|
-| **Node.js** | v22.21.1+ (see `.nvmrc`) | `node --version` |
-| **npm** | v10+ | `npm --version` |
-| **Python** | 3.x | `python --version` |
-| **Visual Studio Build Tools** | 2019 or 2022 | Installed via [Visual Studio Installer](https://visualstudio.microsoft.com/downloads/) |
+| Extension | Role |
+|---|---|
+| `scylla-engagements` | Engagements, identities, resources, transactions, probes, authorization matrix, scanner import |
+| `scylla-auth` | Authentication profiles, sessions, cookie jars, credential resolution |
+| `scylla-http` | HTTP execution, replay, artifacts, evidence persistence, governed egress |
+| `scylla-scanner` | Authorization and web/API scanner families |
+| `scylla-recon` | Crawl, port scan, directory discovery, fingerprinting |
+| `scylla-findings` | Finding lifecycle, provenance, evidence catalog |
+| `scylla-jobs` | Headless `.scylla_job.json` orchestration |
+| `scylla-reporting` | Report generation |
+| `scylla-export` | Machine-readable finding export |
+| `scylla-wordlists` | Wordlist discovery and management |
+| `scylla-theme` | Scylla UI/theme assets |
 
-> [!WARNING]
-> **Windows Compiles:** Visual Studio Build Tools must have the **"Desktop development with C++"** workload checked. This is required for compiling native node bindings (`node-pty`, `better-sqlite3`, etc.).
-
-### Build Steps
-
-1. **Clone the Repository:**
-   ```powershell
-   git clone https://github.com/AkashaCorporation/HikariSystem-Scylla.git
-   cd HikariSystem-Scylla
-   ```
-
-2. **Install Root Dependencies:**
-   ```powershell
-   $env:VSCODE_SKIP_NODE_VERSION_CHECK="1"
-   npm install
-   ```
-
-3. **Compile the IDE & Extensions:**
-   ```powershell
-   $env:VSCODE_SKIP_NODE_VERSION_CHECK="1"
-   npm run compile
-   ```
-
-4. **Launch the Development Shell:**
-   ```powershell
-   $env:VSCODE_SKIP_NODE_VERSION_CHECK="1"
-   .\scripts\code.bat
-   ```
+A small set of HexCore utility modules remains for shared capabilities such as hashing, strings, Base64, YARA, IOC extraction, file-type detection, common helpers, and eventual SQLite-backed persistence.
 
 ---
 
-## Usage
+## Versioning
 
-### 🚀 Running Scans & Recon
-- **Start Port Scanning:** Run `Scylla Recon: Port Scan` from the Command Palette (`Ctrl+Shift+P`).
-- **Initiate Web Crawl:** Run `Scylla Recon: Crawl Website` and input your target URL.
-- **Directory Fuzzing:** Right-click a target directory or run `Scylla Recon: Directory Fuzzing` and select your wordlist of choice.
+**Scylla product version:** `3.0.0` target, tracked in `product.json` as `scyllaVersion`.
 
-### 🧪 Vulnerability Auditing
-- **Scan Targets:** Open the Scylla findings tab in the Activity Bar to inspect active targets.
-- **Vulnerability Checks:** Right-click an endpoint or domain in the tree and select a targeted scanner like `SQL Injection` or `Cross-Site Scripting`.
-- **Orchestrate Attacks:** Use the Scylla Command Deck Preset cards for instant fuzzer/scanner runs.
+Do not infer the Scylla product version from:
 
-### 📂 Using Wordlists
-- **Browse Lists:** Run `Scylla Wordlists: Browse Wordlists` to inspect, preview, and load built-in payload text files.
+- the root Code-OSS-derived `package.json` version;
+- an individual extension package version such as `scylla-scanner@2.1.0`;
+- the VS Code/Code-OSS base version.
 
-### 📊 Generating Pentest Reports
-- **Execute Report Composer:** Run `Scylla: Generate Pentest Report` to aggregate current workspace findings, screenshots, and evidence files into a beautifully formatted Markdown/PDF deliverable.
+The `3.0.0` release tag should represent the first validated standalone Scylla distribution from the Windows ZIP pipeline, not merely a source-tree milestone.
+
+---
+
+## Building from source
+
+### Prerequisites
+
+| Requirement | Recommended baseline |
+|---|---|
+| Node.js | 22.21.1 |
+| npm | 10.x |
+| Python | 3.11 |
+| Windows build tooling | Visual Studio Build Tools with Desktop development with C++ when native components are required |
+
+### Development bootstrap
+
+```powershell
+git clone https://github.com/AkashaCorporation/HikariSystem-Scylla.git
+cd HikariSystem-Scylla
+$env:VSCODE_SKIP_NODE_VERSION_CHECK="1"
+npm ci
+npm run compile
+```
+
+Launch the development shell on Windows with:
+
+```powershell
+.\scripts\code.bat
+```
+
+### Windows distributable
+
+The GitHub Actions Windows build is the intended standalone distribution path. A successful packaging run verifies the built Scylla tree, creates `Scylla-win32-x64.zip`, and uploads the artifact. Until that path completes green end-to-end, 3.0.0 remains a target/pre-release rather than a tagged stable release.
+
+---
+
+## Current 3.0 limitations
+
+- Engagement persistence is JSON today; the store boundary is designed for a later SQLite backend.
+- Job timeout handling still uses a soft `Promise.race` timeout and does not cooperatively cancel an underlying long-running command.
+- Jobs do not yet expose native typed step-output dataflow; active-engagement state and file-backed evidence imports bridge steps for now.
+- Broad scanner families do not all have the same provenance rigor as the new authorization paths yet.
+
+---
+
+## Responsible use
+
+Scylla is an offensive security research tool. Use it only against systems you own or have explicit authorization to test. Scope controls are designed to reduce accidental boundary violations; they are not a substitute for understanding the rules of an engagement.
 
 ---
 
 ## Contributing
 
-Scylla is open source under the **GNU General Public License v3.0**. 
-
-Contributions are welcome! Please open a detailed issue or a draft Pull Request to discuss new scanners, vulnerability engines, or dashboard capabilities before initiating large-scale code refactors.
+Scylla is open source under the GNU General Public License v3.0. Contributions are welcome. For large architectural changes, opening an issue or draft pull request first is encouraged so scanner semantics, evidence contracts, and headless compatibility can be reviewed together.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for complete details.
+This project is licensed under the **GNU General Public License v3.0**. See [`LICENSE`](LICENSE) for details.
 
 ---
 
 <p align="center">
-  <strong>HikariSystem Scylla</strong> — Offensive Security Suite for Professionals
+  <strong>HikariSystem Scylla 3.0</strong><br>
+  Evidence-driven offensive security experimentation.
 </p>
