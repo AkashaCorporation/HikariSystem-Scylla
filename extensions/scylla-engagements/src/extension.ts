@@ -13,6 +13,7 @@ import type {
 	EngagementIdOptions,
 	ProbeOptions,
 	ProbeResponseData,
+	ProbeResponseSummary,
 	ProbeResult,
 	RecordTransactionOptions,
 	RegisterResourceOptions,
@@ -36,6 +37,15 @@ interface HttpSendResult {
 }
 
 const SAFE_PROBE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const SENSITIVE_RESPONSE_HEADERS = new Set([
+	'set-cookie',
+	'authorization',
+	'proxy-authorization',
+	'www-authenticate',
+	'proxy-authenticate',
+	'x-api-key',
+	'x-auth-token',
+]);
 
 export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
@@ -179,7 +189,7 @@ export function activate(context: vscode.ExtensionContext): void {
 				identityId: identity.id,
 				resourceId: resource?.id,
 				transaction: recorded.transaction,
-				response: httpResult.response,
+				response: buildResponseSummary(httpResult.response, bodyHash, arg),
 				responseFile: httpResult.responseFile,
 			};
 		}),
@@ -187,6 +197,48 @@ export function activate(context: vscode.ExtensionContext): void {
 			return engagementStore.authorizationMatrix(arg?.engagementId);
 		}),
 	);
+}
+
+function buildResponseSummary(
+	response: ProbeResponseData,
+	bodyHash: string,
+	options: ProbeOptions,
+): ProbeResponseSummary {
+	const contentType = getHeader(response.headers, 'content-type');
+	return {
+		statusCode: response.statusCode,
+		statusMessage: response.statusMessage,
+		finalUrl: response.finalUrl,
+		contentType,
+		bodyBytes: response.bodyBytes,
+		bodyHash,
+		truncated: response.truncated,
+		elapsedMs: response.elapsedMs,
+		redirected: response.redirected,
+		redirectCount: response.redirectCount,
+		...(options.includeResponseHeaders ? { headers: sanitizeResponseHeaders(response.headers) } : {}),
+		...(options.includeResponseBody ? { bodyText: response.bodyText } : {}),
+	};
+}
+
+function getHeader(headers: Record<string, string | string[]>, name: string): string | undefined {
+	const target = name.toLowerCase();
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === target) {
+			return Array.isArray(value) ? value.join(', ') : value;
+		}
+	}
+	return undefined;
+}
+
+function sanitizeResponseHeaders(
+	headers: Record<string, string | string[]>,
+): Record<string, string | string[]> {
+	const sanitized: Record<string, string | string[]> = {};
+	for (const [key, value] of Object.entries(headers)) {
+		sanitized[key] = SENSITIVE_RESPONSE_HEADERS.has(key.toLowerCase()) ? '[REDACTED]' : value;
+	}
+	return sanitized;
 }
 
 export function deactivate(): void { }
